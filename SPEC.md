@@ -249,7 +249,7 @@ ou si les 3 derniers ont échoué, un message d'avertissement part dans Discord.
 Ce message est distinct visuellement des alertes de deals et n'est pas répété
 plus d'une fois par 24 h.
 
-**Commande de diagnostic.** `python -m legodeals.health` affiche en une page :
+**Commande de diagnostic.** `python -m bricks.health` affiche en une page :
 date du dernier run réussi par source, nombre d'offres actives, taux de
 résolution des 100 dernières offres, nombre d'alertes envoyées sur 7 jours.
 

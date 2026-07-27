@@ -26,7 +26,7 @@ Poser la structure et l'outillage. Aucune logique métier.
 **Terminé quand**
 
 `uv run alembic upgrade head` crée les cinq tables dans un SQLite local, et
-`python -m legodeals.health` affiche une page vide sans planter.
+`python -m bricks.health` affiche une page vide sans planter.
 
 ---
 
@@ -44,7 +44,7 @@ Remplir la table `sets`. Sans elle, aucune résolution n'est possible.
 
 **Terminé quand**
 
-`python -m legodeals.catalog sync` remplit la table avec plusieurs milliers de
+`python -m bricks.catalog sync` remplit la table avec plusieurs milliers de
 sets, une requête SQL sur `10497-1` renvoie le bon nom et un RRP en euros, et
 relancer la commande ne change pas le nombre de lignes.
 
@@ -67,7 +67,7 @@ Faire entrer des offres dans la base. Pas encore de résolution, pas d'alerte.
 
 **Terminé quand**
 
-`python -m legodeals.ingest --source dealabs` remplit `offers` et
+`python -m bricks.ingest --source dealabs` remplit `offers` et
 `price_points`, une seconde exécution immédiate ne crée aucune offre en double
 mais bien de nouveaux price points, et la table `runs` contient deux lignes en
 statut `ok`.
@@ -128,7 +128,7 @@ sérieux.
 
 **Contenu**
 
-- `python -m legodeals.health` complet : dernier run par source, offres actives,
+- `python -m bricks.health` complet : dernier run par source, offres actives,
   taux de résolution sur les 100 dernières offres, alertes sur 7 jours
 - Alerte de santé Discord après 3 runs à zéro entrée ou 3 échecs consécutifs,
   visuellement distincte, pas plus d'une fois par 24 h

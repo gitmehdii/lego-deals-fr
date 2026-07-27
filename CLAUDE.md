@@ -26,7 +26,7 @@ français, ni en anglais, ni dans un nom de variable.
 | **Offer** | Un set proposé à un prix donné, chez un marchand donné, à une URL donnée. C'est ce qu'une Source nous remonte. |
 | **PricePoint** | Un relevé de prix daté rattaché à une Offer. On empile, on n'écrase jamais. |
 | **RRP** | Prix public conseillé par LEGO, en euros. La seule référence honnête pour calculer une remise. |
-| **Discount** | `(rrp - price) / rrp`. Jamais calculé sur le prix barré du marchand, qui est du marketing. |
+| **Discount** | `(rrp - price) / rrp * 100`, **toujours en pourcentage entre 0 et 100**, jamais en ratio. Même unité en configuration (`MIN_DISCOUNT_PCT`) et en base (`alerts.discount_pct`), donc aucune conversion nulle part dans le code. Jamais calculé sur le prix barré du marchand, qui est du marketing. |
 | **Resolution** | Associer le titre d'une Offer à un `set_num`. Produit toujours un score de confiance. |
 | **Alert** | Un message Discord effectivement envoyé. Une Offer peut exister sans Alert. |
 | **Run** | Une exécution du pipeline d'ingestion, tracée en base. |
@@ -66,7 +66,7 @@ web en v1, il n'y a pas de serveur.
 ## Architecture
 
 ```
-legodeals/
+src/bricks/
   sources/      Récupère des offres brutes depuis le monde extérieur.
                 Une source = un fichier. Interface commune `Source`.
                 Ne sait rien de la base ni de Discord.
@@ -99,9 +99,9 @@ Si tu te retrouves à importer `httpx` dans `core/`, tu t'es trompé de couche.
 Le pipeline est un CLI pur :
 
 ```bash
-python -m legodeals.ingest --source dealabs
-python -m legodeals.catalog sync
-python -m legodeals.health
+python -m bricks.ingest --source dealabs
+python -m bricks.catalog sync
+python -m bricks.health
 ```
 
 **Aucune ligne de code ne doit savoir qu'elle tourne dans GitHub Actions.** Pas
@@ -119,8 +119,8 @@ DATABASE_URL           sqlite:///local.db  ou  sqlite+libsql://...
 BRICKSET_API_KEY
 DISCORD_WEBHOOK_URL
 DEALABS_RSS_URL
-MIN_DISCOUNT_PCT       défaut 25
-MIN_RESOLUTION_SCORE   défaut 0.85
+MIN_DISCOUNT_PCT       défaut 25      pourcentage, 0-100
+MIN_RESOLUTION_SCORE   défaut 0.85    ratio, 0-1
 LOG_LEVEL              défaut INFO
 ```
 
