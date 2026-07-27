@@ -132,18 +132,33 @@ LOG_LEVEL              défaut INFO
 dans un log.** Si un log doit mentionner l'URL du webhook, il affiche
 `DISCORD_WEBHOOK_URL set: true`, pas la valeur.
 
-Un secret ne fuit pas seulement quand on le journalise exprès. Un `authToken`
-Turso voyage en paramètre de query, pas en mot de passe d'URL, donc SQLAlchemy
-ne le masque pas et `str(exception)` le recrache en entier.
+Un secret ne fuit pas seulement quand on le journalise exprès. Une URL de base
+de données porte son credential de deux façons, et `str(exception)` recrache
+l'URL complète dans les deux cas :
+
+- **en paramètre de query** : `libsql://db.turso.io?authToken=...`. SQLAlchemy
+  ne masque que les mots de passe d'URL, celui-ci passe en clair.
+- **en userinfo** : `postgresql://owner:password@host/db`, la forme de Neon et
+  de tout Postgres managé.
 
 **Tout texte d'exception passe par `bricks.log.redact_secrets()` avant d'être
 journalisé ou persisté.** Cela vaut en particulier pour `runs.error`, qui reçoit
-des messages d'exception bruts. Le helper retire la valeur de tout paramètre de
-query dont le nom contient `token`, `key`, `secret`, `password` ou `pwd`.
+des messages d'exception bruts. Le helper couvre les deux formes : il retire la
+valeur de tout paramètre de query dont le nom contient `token`, `key`, `secret`,
+`password` ou `pwd`, et le mot de passe de tout userinfo d'URL. Le nom
+d'utilisateur est conservé, il aide à lire un log et n'est pas le secret.
+
+`redact_secrets` est une **fonction totale** : elle accepte n'importe quelle
+entrée et ne lève jamais. En cas d'échec interne, elle renvoie
+`<redaction failed>` et jamais la valeur d'origine. Un helper de sanitisation
+qui retombe sur son entrée en cas d'erreur est pire qu'inutile, et un processor
+de log qui lève casse toute la journalisation du process.
 
 Les logs émis via `bricks.log` sont déjà nettoyés : un processor structlog
-applique `redact_secrets` à toutes les valeurs texte, traceback compris. La
-persistance en base n'a pas ce filet, l'appel y est explicite.
+applique `redact_secrets` aux valeurs texte, aux tracebacks formatés, aux objets
+non primitifs et au contenu des dicts et listes imbriqués. Les nombres, booléens
+et `None` gardent leur type. La persistance en base n'a pas ce filet, l'appel y
+est explicite.
 
 ## Règles de scraping
 
@@ -189,3 +204,12 @@ Une tâche n'est finie que si :
 - Une fonction qui dépasse 40 lignes est un signal, pas une fatalité
 - Les datetime sont en UTC, stockées en ISO 8601, converties en Europe/Paris
   seulement au moment de l'affichage
+## Contournements
+
+Si un test, une spec ou un document de ce repo t'empêche d'écrire
+le bon code, c'est le test ou la spec qu'il faut corriger. Ne
+neutralise jamais une vérification pour faire passer autre chose.
+
+Si tu as contourné quelque chose dans une session précédente et
+que tu t'en rends compte, signale-le et corrige-le, même si
+personne ne l'a demandé.

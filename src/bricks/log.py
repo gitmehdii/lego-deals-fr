@@ -10,6 +10,10 @@ import structlog
 from bricks.config import LogLevel
 
 REDACTED = "***"
+REDACTION_FAILED = "<redaction failed>"
+
+# Guards against a self-referencing structure passed as a log value.
+_MAX_DEPTH = 6
 
 # A Turso URL carries its credential as a query parameter
 # (libsql://db.turso.io?authToken=...), not as a URL password, so SQLAlchemy
@@ -24,24 +28,61 @@ _SENSITIVE_PARAM = re.compile(
     re.IGNORECASE,
 )
 
+# Postgres puts its password in the userinfo instead:
+# postgresql://owner:password@ep-x.aws.neon.tech/db. The username is kept, it
+# is useful when reading a log and is not the secret. Requires a scheme, so a
+# bare email address in an exception message is left alone.
+_URL_USERINFO = re.compile(r"(://[^/?#\s:@]+):[^/?#\s@]*@")
 
-def redact_secrets(text: str) -> str:
-    """Strip credential-bearing query parameters out of arbitrary text.
+
+def redact_secrets(value: object) -> str:
+    """Strip credentials out of arbitrary text. Total function: never raises.
 
     Every exception message goes through this before being logged or written
     to runs.error, because an exception raised by the database driver quotes
     the connection URL in full.
+
+    Anything that goes wrong internally yields REDACTION_FAILED rather than
+    the input: a redaction helper that falls back to the original value on
+    error is worse than useless, and a logging processor that raises takes
+    down every log line in the process.
     """
-    return _SENSITIVE_PARAM.sub(rf"\1\2={REDACTED}", text)
+    try:
+        text = value if isinstance(value, str) else str(value)
+        text = _SENSITIVE_PARAM.sub(rf"\1\2={REDACTED}", text)
+        return _URL_USERINFO.sub(rf"\1:{REDACTED}@", text)
+    except Exception:
+        return REDACTION_FAILED
+
+
+def _redact_value(value: object, depth: int = 0) -> object:
+    """Redact strings while leaving JSON primitives typed as they were.
+
+    Non-primitives are stringified by the renderer anyway, so they are redacted
+    here: an exception object passed as a log value carries its message, and
+    that message is exactly where a connection URL shows up.
+    """
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if depth >= _MAX_DEPTH:
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {key: _redact_value(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_redact_value(item, depth + 1) for item in value]
+    return redact_secrets(value)
 
 
 def _redact_processor(
     logger: object, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
-    return {
-        key: redact_secrets(value) if isinstance(value, str) else value
-        for key, value in event_dict.items()
-    }
+    try:
+        return {key: _redact_value(value) for key, value in event_dict.items()}
+    except Exception:
+        # Drop the record rather than risk emitting an unredacted field.
+        return {"event": REDACTION_FAILED}
 
 
 def configure_logging(level: LogLevel = "INFO") -> None:
