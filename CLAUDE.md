@@ -132,6 +132,19 @@ LOG_LEVEL              défaut INFO
 dans un log.** Si un log doit mentionner l'URL du webhook, il affiche
 `DISCORD_WEBHOOK_URL set: true`, pas la valeur.
 
+Un secret ne fuit pas seulement quand on le journalise exprès. Un `authToken`
+Turso voyage en paramètre de query, pas en mot de passe d'URL, donc SQLAlchemy
+ne le masque pas et `str(exception)` le recrache en entier.
+
+**Tout texte d'exception passe par `bricks.log.redact_secrets()` avant d'être
+journalisé ou persisté.** Cela vaut en particulier pour `runs.error`, qui reçoit
+des messages d'exception bruts. Le helper retire la valeur de tout paramètre de
+query dont le nom contient `token`, `key`, `secret`, `password` ou `pwd`.
+
+Les logs émis via `bricks.log` sont déjà nettoyés : un processor structlog
+applique `redact_secrets` à toutes les valeurs texte, traceback compris. La
+persistance en base n'a pas ce filet, l'appel y est explicite.
+
 ## Règles de scraping
 
 On est un petit projet qui consomme le travail des autres. On se tient bien.
