@@ -47,7 +47,7 @@ class Offer(Base):
 
     __tablename__ = "offers"
     __table_args__ = (
-        UniqueConstraint("source", "external_id"),
+        UniqueConstraint("source", "external_id", name="uq_offers_source_external_id"),
         Index("idx_offers_set_num", "set_num"),
         Index("idx_offers_active", "is_active", "last_seen_at"),
         {"sqlite_autoincrement": True},

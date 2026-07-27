@@ -17,6 +17,11 @@
 --   - All timestamps are UTC, stored as ISO 8601 text.
 --   - All prices are in euros, stored as REAL.
 --   - Booleans are INTEGER 0/1 (SQLite has no native boolean).
+--   - Every constraint is named, following the SQLAlchemy naming convention
+--     (pk_, uq_, fk_). SQLite would happily leave them anonymous, but then
+--     Alembic cannot alter one by name and has to guess. Primary keys are
+--     spelled NOT NULL explicitly: SQLite lets a NULL into a TEXT PRIMARY KEY
+--     otherwise, which is a long-standing quirk we do not want to inherit.
 -- =============================================================================
 
 
@@ -30,7 +35,7 @@
 -- -----------------------------------------------------------------------------
 CREATE TABLE sets (
     -- Official LEGO set number including variant suffix, e.g. "10497-1".
-    set_num          TEXT PRIMARY KEY,
+    set_num          TEXT NOT NULL,
 
     name             TEXT NOT NULL,
 
@@ -49,7 +54,9 @@ CREATE TABLE sets (
     rrp_eur          REAL,
 
     image_url        TEXT,
-    updated_at       TEXT NOT NULL
+    updated_at       TEXT NOT NULL,
+
+    CONSTRAINT pk_sets PRIMARY KEY (set_num)
 );
 
 CREATE INDEX idx_sets_name_normalized ON sets (name_normalized);
@@ -66,9 +73,9 @@ CREATE INDEX idx_sets_theme           ON sets (theme);
 -- is still worth storing. It just never produces an alert.
 -- -----------------------------------------------------------------------------
 CREATE TABLE offers (
-    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 
-    set_num                TEXT REFERENCES sets (set_num),
+    set_num                TEXT,
 
     -- How sure we are about set_num, between 0 and 1. NULL when unresolved.
     resolution_score       REAL,
@@ -99,7 +106,8 @@ CREATE TABLE offers (
     -- 0 once the deal is gone or expired at the source.
     is_active              INTEGER NOT NULL DEFAULT 1,
 
-    UNIQUE (source, external_id)
+    CONSTRAINT uq_offers_source_external_id UNIQUE (source, external_id),
+    CONSTRAINT fk_offers_set_num_sets FOREIGN KEY (set_num) REFERENCES sets (set_num)
 );
 
 CREATE INDEX idx_offers_set_num ON offers (set_num);
@@ -114,10 +122,12 @@ CREATE INDEX idx_offers_active  ON offers (is_active, last_seen_at);
 -- even when the price has not moved.
 -- -----------------------------------------------------------------------------
 CREATE TABLE price_points (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    offer_id     INTEGER NOT NULL REFERENCES offers (id),
+    id           INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    offer_id     INTEGER NOT NULL,
     price_eur    REAL NOT NULL,
-    observed_at  TEXT NOT NULL
+    observed_at  TEXT NOT NULL,
+
+    CONSTRAINT fk_price_points_offer_id_offers FOREIGN KEY (offer_id) REFERENCES offers (id)
 );
 
 CREATE INDEX idx_price_points_offer ON price_points (offer_id, observed_at);
@@ -131,8 +141,8 @@ CREATE INDEX idx_price_points_offer ON price_points (offer_id, observed_at);
 -- since the last one.
 -- -----------------------------------------------------------------------------
 CREATE TABLE alerts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    offer_id      INTEGER NOT NULL REFERENCES offers (id),
+    id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    offer_id      INTEGER NOT NULL,
 
     -- Unused in v1 (single server). Present now because adding it later would
     -- mean a migration on a table that will already be large.
@@ -148,7 +158,9 @@ CREATE TABLE alerts (
     -- 'discount_threshold' | 'all_time_low'
     reason        TEXT NOT NULL,
 
-    sent_at       TEXT NOT NULL
+    sent_at       TEXT NOT NULL,
+
+    CONSTRAINT fk_alerts_offer_id_offers FOREIGN KEY (offer_id) REFERENCES offers (id)
 );
 
 CREATE INDEX idx_alerts_offer ON alerts (offer_id, sent_at);
@@ -162,7 +174,7 @@ CREATE INDEX idx_alerts_offer ON alerts (offer_id, sent_at);
 -- its row, with status 'error' and the message.
 -- -----------------------------------------------------------------------------
 CREATE TABLE runs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     source          TEXT NOT NULL,
 
     started_at      TEXT NOT NULL,

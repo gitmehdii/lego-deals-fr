@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("rrp_eur", sa.REAL(), nullable=True),
         sa.Column("image_url", sa.Text(), nullable=True),
         sa.Column("updated_at", sa.Text(), nullable=False),
-        sa.PrimaryKeyConstraint("set_num"),
+        sa.PrimaryKeyConstraint("set_num", name="pk_sets"),
     )
     op.create_index("idx_sets_name_normalized", "sets", ["name_normalized"])
     op.create_index("idx_sets_theme", "sets", ["theme"])
@@ -56,9 +56,13 @@ def upgrade() -> None:
         sa.Column(
             "is_active", sa.Integer(), server_default=sa.text("1"), nullable=False
         ),
-        sa.ForeignKeyConstraint(["set_num"], ["sets.set_num"]),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("source", "external_id"),
+        sa.ForeignKeyConstraint(
+            ["set_num"], ["sets.set_num"], name="fk_offers_set_num_sets"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_offers"),
+        sa.UniqueConstraint(
+            "source", "external_id", name="uq_offers_source_external_id"
+        ),
         sqlite_autoincrement=True,
     )
     op.create_index("idx_offers_set_num", "offers", ["set_num"])
@@ -70,8 +74,10 @@ def upgrade() -> None:
         sa.Column("offer_id", sa.Integer(), nullable=False),
         sa.Column("price_eur", sa.REAL(), nullable=False),
         sa.Column("observed_at", sa.Text(), nullable=False),
-        sa.ForeignKeyConstraint(["offer_id"], ["offers.id"]),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["offer_id"], ["offers.id"], name="fk_price_points_offer_id_offers"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_price_points"),
         sqlite_autoincrement=True,
     )
     op.create_index(
@@ -88,8 +94,10 @@ def upgrade() -> None:
         sa.Column("discount_pct", sa.REAL(), nullable=True),
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("sent_at", sa.Text(), nullable=False),
-        sa.ForeignKeyConstraint(["offer_id"], ["offers.id"]),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["offer_id"], ["offers.id"], name="fk_alerts_offer_id_offers"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_alerts"),
         sqlite_autoincrement=True,
     )
     op.create_index("idx_alerts_offer", "alerts", ["offer_id", "sent_at"])
@@ -114,7 +122,7 @@ def upgrade() -> None:
         ),
         sa.Column("status", sa.Text(), nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_runs"),
         sqlite_autoincrement=True,
     )
     op.create_index("idx_runs_source", "runs", ["source", "started_at"])

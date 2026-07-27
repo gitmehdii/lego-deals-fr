@@ -37,24 +37,19 @@ def describe(engine: Engine) -> dict[str, dict[str, object]]:
 
     described: dict[str, dict[str, object]] = {}
     for table in sorted(tables):
-        primary_key = tuple(inspector.get_pk_constraint(table)["constrained_columns"])
+        pk = inspector.get_pk_constraint(table)
         described[table] = {
             # Ordered: a column inserted in the wrong position is a difference.
-            #
-            # A primary key column is reported as nullable when SQLite wrote the
-            # DDL without NOT NULL, which it does for `INTEGER PRIMARY KEY` and
-            # for `TEXT PRIMARY KEY` alike. That flag says nothing useful, so it
-            # is normalised away rather than compared.
             "columns": [
                 (
                     column["name"],
                     str(column["type"]),
-                    False if column["name"] in primary_key else column["nullable"],
+                    column["nullable"],
                     _normalize_default(column["default"]),
                 )
                 for column in inspector.get_columns(table)
             ],
-            "primary_key": primary_key,
+            "primary_key": (pk["name"], tuple(pk["constrained_columns"])),
             "autoincrement": _has_autoincrement(engine, table),
             "indexes": sorted(
                 (
@@ -99,6 +94,40 @@ def test_models_match_schema_sql(reference, engine_from_models):
 
 def test_migration_matches_schema_sql(reference, engine_from_alembic):
     assert describe(engine_from_alembic) == reference
+
+
+def test_every_unique_and_foreign_key_constraint_is_named(reference):
+    """An anonymous constraint cannot be altered by name by a later migration."""
+    anonymous: list[str] = []
+    for table, described in reference.items():
+        for kind in ("unique_constraints", "foreign_keys"):
+            anonymous += [
+                f"{table}.{kind}{constraint[1]}"
+                for constraint in described[kind]
+                if constraint[0] is None
+            ]
+    assert anonymous == []
+
+
+def test_primary_keys_are_named_unless_sqlite_forbids_it(reference):
+    """AUTOINCREMENT only exists on an inline `INTEGER PRIMARY KEY` column, and
+    that form takes no constraint name. Every other primary key must be named."""
+    for table, described in reference.items():
+        pk_name, _ = described["primary_key"]
+        if described["autoincrement"]:
+            assert pk_name is None, table
+        else:
+            assert pk_name == f"pk_{table}", table
+
+
+def test_primary_keys_are_not_nullable(reference):
+    """SQLite lets a NULL into a TEXT PRIMARY KEY unless NOT NULL is spelled out."""
+    for table, described in reference.items():
+        _, pk_columns = described["primary_key"]
+        nullable = {
+            name for name, _, is_nullable, _ in described["columns"] if is_nullable
+        }
+        assert not (set(pk_columns) & nullable), table
 
 
 @pytest.mark.parametrize(
