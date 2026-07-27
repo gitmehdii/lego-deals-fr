@@ -33,10 +33,14 @@ français, ni en anglais, ni dans un nom de variable.
 
 ## Langue
 
-- Code, noms de tables, noms de colonnes, commentaires de code, messages de
-  commit : **anglais**
-- Documentation du repo (ce fichier, SPEC.md, TICKETS.md) : **français**
-- Messages envoyés dans Discord : **français**
+La règle est le **destinataire**, pas l'endroit où vit le texte.
+
+- Destinataire final, c'est-à-dire ce qui part dans Discord : **français**
+- Destinataire développeur, c'est-à-dire code, noms de tables, noms de
+  colonnes, commentaires, messages de commit, sortie du CLI, aide `--help`,
+  logs et messages d'exception : **anglais**
+- Documentation du repo (ce fichier, README.md, SPEC.md, TICKETS.md, commentaires
+  de `.env.example`) : **français**
 
 Pas de mélange à l'intérieur d'une de ces trois catégories.
 
@@ -126,7 +130,7 @@ LOG_LEVEL              défaut INFO
 
 **Jamais de secret en dur, jamais de secret dans un commit, jamais de secret
 dans un log.** Si un log doit mentionner l'URL du webhook, il affiche
-`DISCORD_WEBHOOK_URL présent: true`, pas la valeur.
+`DISCORD_WEBHOOK_URL set: true`, pas la valeur.
 
 ## Règles de scraping
 

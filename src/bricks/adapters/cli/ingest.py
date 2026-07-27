@@ -8,9 +8,9 @@ from bricks.log import configure_logging, get_logger
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m bricks.ingest",
-        description="Récupère les offres d'une source et les enregistre.",
+        description="Fetch offers from a source and store them.",
     )
-    parser.add_argument("--source", required=True, help="Nom de la source à lire.")
+    parser.add_argument("--source", required=True, help="Name of the source to read.")
     args = parser.parse_args(argv)
 
     settings = get_settings()

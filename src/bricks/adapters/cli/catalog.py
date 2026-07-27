@@ -8,10 +8,10 @@ from bricks.log import configure_logging, get_logger
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m bricks.catalog",
-        description="Gère le catalogue des sets LEGO.",
+        description="Manage the LEGO set catalogue.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("sync", help="Met à jour la table sets.")
+    subparsers.add_parser("sync", help="Refresh the sets table.")
     args = parser.parse_args(argv)
 
     settings = get_settings()

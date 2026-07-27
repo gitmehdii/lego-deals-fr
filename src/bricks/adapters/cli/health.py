@@ -7,34 +7,34 @@ from bricks.config import Settings, get_settings
 from bricks.log import configure_logging
 
 _SECTIONS = (
-    "Dernier run réussi par source",
-    "Offres actives",
-    "Taux de résolution (100 dernières offres)",
-    "Alertes envoyées (7 derniers jours)",
+    "Last successful run per source",
+    "Active offers",
+    "Resolution rate (last 100 offers)",
+    "Alerts sent (last 7 days)",
 )
 
 
 def _render(settings: Settings) -> str:
     """Never print DATABASE_URL: a libSQL URL carries an auth token."""
     lines = [
-        "Santé du pipeline — bricks",
-        "==========================",
+        "bricks pipeline health",
+        "======================",
         "",
-        f"Base de données           {make_url(settings.database_url).drivername}",
-        f"BRICKSET_API_KEY présent  {settings.brickset_api_key is not None}",
-        f"DISCORD_WEBHOOK_URL prés. {settings.discord_webhook_url is not None}",
+        f"Database driver            {make_url(settings.database_url).drivername}",
+        f"BRICKSET_API_KEY set       {settings.brickset_api_key is not None}",
+        f"DISCORD_WEBHOOK_URL set    {settings.discord_webhook_url is not None}",
         "",
     ]
     for section in _SECTIONS:
         lines += [section, "  —", ""]
-    lines.append("(compteurs renseignés au lot 6)")
+    lines.append("(counters land in lot 6)")
     return "\n".join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m bricks.health",
-        description="Affiche l'état de santé du pipeline.",
+        description="Report the health of the pipeline.",
     )
     parser.parse_args(argv)
 

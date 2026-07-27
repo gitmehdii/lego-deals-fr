@@ -6,8 +6,8 @@ from bricks.adapters.cli import catalog, health, ingest
 def test_health_prints_a_page_without_crashing(capsys):
     assert health.main([]) == 0
     out = capsys.readouterr().out
-    assert "Santé du pipeline" in out
-    assert "Offres actives" in out
+    assert "bricks pipeline health" in out
+    assert "Active offers" in out
 
 
 def test_health_never_prints_the_database_url(monkeypatch, capsys):
@@ -23,7 +23,7 @@ def test_health_reports_secret_presence_not_value(monkeypatch, capsys):
     assert health.main([]) == 0
     out = capsys.readouterr().out
     assert "s3cret" not in out
-    assert "BRICKSET_API_KEY présent  True" in out
+    assert "BRICKSET_API_KEY set       True" in out
 
 
 def test_ingest_requires_a_source():
