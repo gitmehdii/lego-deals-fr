@@ -19,7 +19,9 @@ class Settings(BaseSettings):
 
     brickset_api_key: SecretStr | None = None
     discord_webhook_url: SecretStr | None = None
-    dealabs_rss_url: str | None = None
+    # Dealabs' own LEGO group feed. A personal keyword-alert feed substitutes
+    # for it without a code change; that URL is personal, treat it as a secret.
+    dealabs_rss_url: str = "https://www.dealabs.com/rss/groupe/lego"
 
     # Catalogue endpoints. Not secrets, but no external URL is hardcoded here:
     # the day a provider moves a file, it is a config change, not a release.

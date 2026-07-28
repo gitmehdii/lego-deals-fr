@@ -2,12 +2,12 @@ import gzip
 
 import httpx
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from bricks.adapters.cli import catalog, health, ingest
 from bricks.db.base import Base
-from bricks.db.models import Set
+from bricks.db.models import Offer, PricePoint, Run, Set
 from bricks.db.session import create_db_engine
 from bricks.sources.http import HttpFetcher
 
@@ -65,6 +65,50 @@ def catalogue_network(monkeypatch, tmp_path):
     return requests
 
 
+DEALABS_RSS = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<rss xmlns:pepper="http://www.pepper.com/rss" version="2.0"><channel>'
+    "<item>"
+    '<pepper:merchant name="Alternate" price="115,90€"/>'
+    "<title><![CDATA[Lego Technic 42231 - Dodge Charger]]></title>"
+    "<link>https://www.dealabs.com/bons-plans/lego-technic-42231-3383357</link>"
+    "<guid>https://www.dealabs.com/bons-plans/lego-technic-42231-3383357</guid>"
+    "<pubDate>Tue, 28 Jul 2026 13:28:31 +0200</pubDate>"
+    "</item></channel></rss>"
+)
+
+
+class _DealabsNetwork:
+    """A fake Dealabs that can be told to fall over."""
+
+    def __init__(self):
+        self.status = 200
+
+    def fail_with(self, status: int) -> None:
+        self.status = status
+
+
+@pytest.fixture
+def dealabs_network(monkeypatch, tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'ingest.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    Base.metadata.create_all(create_engine(database_url))
+    network = _DealabsNetwork()
+
+    def handler(request):
+        if network.status != 200:
+            return httpx.Response(network.status)
+        return httpx.Response(200, content=DEALABS_RSS.encode("utf-8"))
+
+    def fake_fetcher(*args, **kwargs):
+        return HttpFetcher(
+            httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda _: None
+        )
+
+    monkeypatch.setattr(ingest, "HttpFetcher", fake_fetcher)
+    return network
+
+
 def test_health_prints_a_page_without_crashing(capsys):
     assert health.main([]) == 0
     out = capsys.readouterr().out
@@ -93,9 +137,54 @@ def test_ingest_requires_a_source():
         ingest.main([])
 
 
-def test_ingest_accepts_a_source(capsys):
+def test_ingest_rejects_an_unknown_source():
+    """argparse validates the name before anything is opened."""
+    with pytest.raises(SystemExit):
+        ingest.main(["--source", "leboncoin"])
+
+
+def test_ingest_stores_offers_and_price_points(dealabs_network, capsys):
     assert ingest.main(["--source", "dealabs"]) == 0
-    assert "source_not_implemented" in capsys.readouterr().out
+
+    out = capsys.readouterr().out
+    assert "Offers new                 1" in out
+    assert "Price points recorded      1" in out
+
+    with Session(create_db_engine()) as session:
+        offer = session.scalars(select(Offer)).one()
+        assert offer.source == "dealabs"
+        assert offer.merchant == "Alternate"
+        assert offer.current_price_eur == pytest.approx(115.90)
+        assert session.scalars(select(Run.status)).all() == ["ok"]
+
+
+def test_ingest_twice_dedupes_offers_but_keeps_recording_prices(
+    dealabs_network, capsys
+):
+    """The ticket's acceptance criterion, through the CLI."""
+    assert ingest.main(["--source", "dealabs"]) == 0
+    assert ingest.main(["--source", "dealabs"]) == 0
+
+    with Session(create_db_engine()) as session:
+        assert session.scalar(select(func.count()).select_from(Offer)) == 1
+        assert session.scalar(select(func.count()).select_from(PricePoint)) == 2
+        assert session.scalars(select(Run.status).order_by(Run.id)).all() == [
+            "ok",
+            "ok",
+        ]
+
+
+def test_ingest_records_a_failing_run_and_exits_nonzero(dealabs_network, capsys):
+    dealabs_network.fail_with(503)
+
+    assert ingest.main(["--source", "dealabs"]) == 1
+    assert "ingest_aborted" in capsys.readouterr().out
+
+    with Session(create_db_engine()) as session:
+        run = session.scalars(select(Run)).one()
+        assert run.status == "error"
+        assert run.finished_at is not None
+        assert run.error
 
 
 def test_catalog_requires_a_subcommand():

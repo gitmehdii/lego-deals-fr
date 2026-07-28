@@ -39,8 +39,29 @@ uv run python -m bricks.catalog sync
 uv run python -m bricks.health
 ```
 
-En l'état, `ingest` signale qu'il n'est pas implémenté et `health` affiche une
-page vide.
+En l'état, `health` affiche une page vide.
+
+### Ingestion
+
+```bash
+uv run python -m bricks.ingest --source dealabs
+```
+
+Lit le flux RSS que Dealabs publie sur son groupe LEGO, déduplique sur
+`(source, external_id)` et empile un `price_point` **à chaque observation**,
+même quand le prix n'a pas bougé — « on a regardé et c'était toujours 79,99 »
+est une information en soi.
+
+Le prix et le marchand viennent de l'attribut `pepper:merchant` du flux ; le
+titre n'est lu qu'en secours. La résolution arrive au lot 4, donc les offres
+atterrissent avec `set_num` à NULL et ne déclenchent rien.
+
+Chaque exécution écrit une ligne dans `runs`, y compris quand elle échoue :
+statut `error`, message nettoyé par `redact_secrets`, et code de sortie 1.
+
+`DEALABS_RSS_URL` pointe par défaut sur le flux public du groupe. Un flux
+d'alerte personnel s'y substitue sans toucher au code — mais cette URL-là est
+personnelle, traite-la comme un secret.
 
 ### Catalogue
 
@@ -88,7 +109,7 @@ les trois fait échouer la suite.
 |---|---|---|
 | 1 | Socle | fait |
 | 2 | Catalogue | fait |
-| 3 | Ingestion Dealabs | à faire |
+| 3 | Ingestion Dealabs | fait |
 | 4 | Résolution | à faire |
 | 5 | Détection et alertes | à faire |
 | 6 | Observabilité et déploiement | à faire |

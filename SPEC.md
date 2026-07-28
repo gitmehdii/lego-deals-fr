@@ -86,13 +86,27 @@ class Source(Protocol):
 
 ### Source v1 : Dealabs
 
-Lecture d'un flux RSS d'alerte Dealabs configuré sur le mot-clé « lego ».
-L'URL du flux est en configuration, elle n'est jamais en dur.
+Lecture du flux RSS que Dealabs publie sur son groupe LEGO. L'URL est en
+configuration, elle n'est jamais en dur, et un flux d'alerte personnel
+configuré sur le mot-clé « lego » s'y substitue sans toucher au code.
 
-Le flux ne donne pas toujours un prix propre. Le prix est extrait du titre par
-expression régulière, en gérant les formats `79,99€`, `79.99 €`, `79€99`. Si
-aucun prix n'est extractible, `price_eur` reste à None et l'offre est ignorée
-pour la détection, mais conservée en base.
+Le flux porte une extension propre à la plateforme Pepper :
+
+```xml
+<pepper:merchant name="Alternate" price="158,90€"/>
+```
+
+**C'est la source primaire du prix et du marchand.** Observée présente sur
+l'intégralité des entrées d'un flux réel, elle est structurée, donc plus fiable
+que n'importe quelle lecture du titre. Une version antérieure de ce document
+prescrivait d'extraire le prix du titre par expression régulière ; c'était
+écrit avant d'avoir regardé le flux.
+
+L'extraction depuis le titre reste implémentée, en **secours** : elle sert
+quand l'attribut est absent ou illisible, et elle gère les formats `79,99€`,
+`79.99 €` et `79€99`. Si aucun prix n'est obtenu par l'une ou l'autre voie,
+`price_eur` reste à None et l'offre est ignorée pour la détection, mais
+conservée en base.
 
 ### Sources futures
 
