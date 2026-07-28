@@ -73,6 +73,10 @@ class HttpFetcher:
         """
         return self._request("POST", url, data=data)
 
+    def post_json(self, url: str, *, json: object) -> httpx.Response:
+        """JSON POST, which is what a Discord webhook expects."""
+        return self._request("POST", url, json=json)
+
     def close(self) -> None:
         self._client.close()
 
@@ -88,11 +92,15 @@ class HttpFetcher:
         self.close()
 
     def _request(
-        self, method: str, url: str, data: dict[str, str] | None = None
+        self,
+        method: str,
+        url: str,
+        data: dict[str, str] | None = None,
+        json: object | None = None,
     ) -> httpx.Response:
         for attempt in range(1, self._max_attempts + 1):
             try:
-                response = self._client.request(method, url, data=data)
+                response = self._client.request(method, url, data=data, json=json)
             except httpx.HTTPError as exc:
                 self._retry_or_surrender(attempt, url, redact_secrets(exc))
                 continue

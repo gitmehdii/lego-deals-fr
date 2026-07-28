@@ -34,6 +34,12 @@ _SENSITIVE_PARAM = re.compile(
 # bare email address in an exception message is left alone.
 _URL_USERINFO = re.compile(r"(://[^/?#\s:@]+):[^/?#\s@]*@")
 
+# A Discord webhook carries its credential in the *path*, not in a query
+# parameter or userinfo: https://discord.com/api/webhooks/<id>/<token>.
+# Anyone holding that URL can post to the channel, so it is a secret, and
+# neither pattern above would touch it.
+_WEBHOOK_PATH = re.compile(r"(/api/webhooks/)[^/\s\"'>)\]]+/[^/\s\"'>)\]]+")
+
 
 def redact_secrets(value: object) -> str:
     """Strip credentials out of arbitrary text. Total function: never raises.
@@ -50,6 +56,7 @@ def redact_secrets(value: object) -> str:
     try:
         text = value if isinstance(value, str) else str(value)
         text = _SENSITIVE_PARAM.sub(rf"\1\2={REDACTED}", text)
+        text = _WEBHOOK_PATH.sub(rf"\1{REDACTED}", text)
         return _URL_USERINFO.sub(rf"\1:{REDACTED}@", text)
     except Exception:
         return REDACTION_FAILED

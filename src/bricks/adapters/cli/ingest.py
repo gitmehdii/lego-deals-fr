@@ -1,24 +1,40 @@
 import argparse
 from collections.abc import Sequence
 
-from bricks.config import get_settings
+from sqlalchemy import update
+from sqlalchemy.orm import Session
+
+from bricks.adapters.webhook.discord import DiscordWebhook, render_console
+from bricks.config import Settings, get_settings
+from bricks.db.models import Run
 from bricks.db.session import create_db_engine, create_session_factory
 from bricks.log import configure_logging, get_logger, redact_secrets
+from bricks.services.alerts import AlertsReport, detect_and_alert
 from bricks.services.ingest import IngestReport, ingest
 from bricks.sources.http import HttpFetcher
 from bricks.sources.registry import SOURCE_NAMES, build_source
+
+# Unused in v1, which has a single channel. The column exists so the anti-spam
+# rules and a future multi-server setup have something to key on.
+_CHANNEL_ID = "default"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m bricks.ingest",
-        description="Fetch offers from a source and store them.",
+        description="Fetch offers from a source, resolve them and alert.",
     )
     parser.add_argument(
         "--source",
         required=True,
         choices=SOURCE_NAMES,
         help="Name of the source to read.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the alerts that would be sent, touching neither Discord "
+        "nor the alerts table.",
     )
     args = parser.parse_args(argv)
 
@@ -34,27 +50,72 @@ def main(argv: Sequence[str] | None = None) -> int:
                 build_source(args.source, fetcher, settings),
                 min_resolution_score=settings.min_resolution_score,
             )
+            alerts, previews = detect_and_alert(
+                session,
+                min_discount_pct=settings.min_discount_pct,
+                channel_id=_CHANNEL_ID,
+                send=_sender(fetcher, settings, dry_run=args.dry_run),
+                only_offer_ids=report.seen_offer_ids,
+            )
         except Exception as exc:
             # The run row is already written by the service, with the reason.
             # Nothing is re-logged here beyond the exit path.
             log.error("ingest_aborted", source=args.source, error=redact_secrets(exc))
             return 1
 
-    print(_render(report))
+        if not args.dry_run:
+            _record_alerts_sent(session, report.run_id, alerts.sent)
+
+    print(_render(report, alerts, previews, dry_run=args.dry_run))
     return 0
 
 
-def _render(report: IngestReport) -> str:
-    return "\n".join(
-        [
-            f"ingest: {report.source}",
-            "=" * (8 + len(report.source)),
-            "",
-            f"Run                        {report.run_id}",
-            f"Offers found               {report.items_found}",
-            f"Offers new                 {report.items_new}",
-            f"Offers resolved            {report.items_resolved}",
-            f"Price points recorded      {report.price_points}",
-            f"Older offers caught up     {report.caught_up}",
-        ]
+def _sender(fetcher: HttpFetcher, settings: Settings, *, dry_run: bool) -> object:
+    """None means "compute everything, send nothing" — the dry run.
+
+    A missing webhook URL takes the same path as --dry-run rather than
+    failing: the offers and price points are already worth the run.
+    """
+    if dry_run:
+        return None
+    if settings.discord_webhook_url is None:
+        get_logger(__name__).warning("discord_webhook_url_missing")
+        return None
+    webhook = DiscordWebhook(
+        fetcher, webhook_url=settings.discord_webhook_url.get_secret_value()
     )
+    return webhook.send
+
+
+def _record_alerts_sent(session: Session, run_id: int, sent: int) -> None:
+    session.execute(update(Run).where(Run.id == run_id).values(alerts_sent=sent))
+    session.commit()
+
+
+def _render(
+    report: IngestReport, alerts: AlertsReport, previews: list, *, dry_run: bool
+) -> str:
+    lines = [
+        f"ingest: {report.source}",
+        "=" * (8 + len(report.source)),
+        "",
+        f"Run                        {report.run_id}",
+        f"Offers found               {report.items_found}",
+        f"Offers new                 {report.items_new}",
+        f"Offers resolved            {report.items_resolved}",
+        f"Price points recorded      {report.price_points}",
+        f"Older offers caught up     {report.caught_up}",
+        "",
+        f"Offers deactivated         {report.deactivated}",
+        "",
+        f"Offers evaluated           {alerts.considered}",
+        f"Alerts suppressed          {alerts.suppressed}",
+        f"Alerts sent                {alerts.sent}",
+    ]
+    if alerts.capped:
+        lines.append("Run hit the alert cap; check for a detection bug.")
+
+    if dry_run:
+        lines += ["", f"--dry-run: {len(previews)} alert(s) would be sent", ""]
+        lines += [render_console(payload) for payload in previews]
+    return "\n".join(lines)

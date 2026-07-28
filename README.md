@@ -84,6 +84,33 @@ et deux vrais sets dans un même titre donnent NULL plutôt qu'un pari.
 Dealabs avec le `set_num` attendu. **À enrichir chaque fois qu'une résolution
 rate.**
 
+### Détection et alertes
+
+```bash
+uv run python -m bricks.ingest --source dealabs --dry-run
+```
+
+Une offre résolue, active et avec un prix est évaluée sur deux critères
+indépendants — il suffit qu'un seul soit vrai :
+
+- **A, seuil de remise** : `discount_pct >= MIN_DISCOUNT_PCT`, calculé sur le
+  RRP et **jamais** sur le prix barré du marchand, qui est du marketing.
+- **B, plus bas prix historique** : strictement sous tout ce qui a été observé
+  pour ce set, tous marchands confondus, et seulement à partir de 3
+  observations antérieures.
+
+Trois garde-fous : pas deux alertes pour la même offre à moins de 24 h, pas de
+nouvelle alerte si le prix n'a pas baissé d'au moins 5 % depuis la dernière, et
+10 alertes maximum par run. Atteindre le plafond est journalisé bruyamment,
+parce que c'est plus souvent un bug qu'un vendredi noir.
+
+`--dry-run` affiche les embeds en console sans toucher ni à Discord ni à la
+table `alerts`. Sans `DISCORD_WEBHOOK_URL`, le run prend le même chemin avec un
+avertissement : les offres et les price points valent déjà le coup.
+
+Seules les offres **vues pendant le run** sont évaluées. Alerter sur un prix
+que personne n'a confirmé aujourd'hui enverrait le lecteur sur une page morte.
+
 ### Catalogue
 
 ```bash
@@ -132,5 +159,5 @@ les trois fait échouer la suite.
 | 2 | Catalogue | fait |
 | 3 | Ingestion Dealabs | fait |
 | 4 | Résolution | fait (jeu de test à 39/50) |
-| 5 | Détection et alertes | à faire |
+| 5 | Détection et alertes | fait (envoi réel non vérifié) |
 | 6 | Observabilité et déploiement | à faire |

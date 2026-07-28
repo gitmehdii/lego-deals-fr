@@ -8,7 +8,7 @@ Detection and alerting are lot 5. A resolved offer is stored and nothing more
 happens to it yet.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -29,6 +29,15 @@ _log = get_logger(__name__)
 # sweep the whole table.
 _CATCH_UP_LIMIT = 500
 
+# An offer absent from the feed for this long is treated as gone, which is what
+# schema.sql means by is_active = 0.
+#
+# Absence alone is not expiry: the Dealabs feed holds thirty items and rotates
+# by recency, so a perfectly live deal drops off it within days. The window is
+# wider than that rotation on purpose. If the deal comes back, the next run
+# sets it active again.
+_STALE_AFTER_HOURS = 72
+
 
 class IngestReport(BaseModel):
     run_id: int
@@ -40,6 +49,11 @@ class IngestReport(BaseModel):
     # Offers judged for the first time, having been stored before a resolver
     # existed or before the catalogue knew their set.
     caught_up: int = 0
+    deactivated: int = 0
+
+    # Offers this run actually observed. Detection reads only these: alerting
+    # on a price we did not see today would send someone to a dead page.
+    seen_offer_ids: list[int] = []
 
 
 def ingest(
@@ -154,6 +168,8 @@ def _ingest_offers(
         if offer.set_num is not None:
             report.items_resolved += 1
 
+        report.seen_offer_ids.append(offer.id)
+
         if raw.price_eur is not None:
             # One row per observation, even when the price has not moved:
             # "we looked and it was still 79,99" is itself information.
@@ -163,7 +179,22 @@ def _ingest_offers(
             report.price_points += 1
 
     session.commit()
+    report.deactivated = _deactivate_stale(session, now)
     return report
+
+
+def _deactivate_stale(session: Session, now: datetime) -> int:
+    """Mark long-unseen offers gone, which is what is_active = 0 means."""
+    cutoff = now - timedelta(hours=_STALE_AFTER_HOURS)
+    result = session.execute(
+        update(Offer)
+        .where(Offer.is_active.is_(True), Offer.last_seen_at < cutoff)
+        .values(is_active=False)
+    )
+    session.commit()
+    if result.rowcount:
+        _log.info("offers_deactivated", count=result.rowcount)
+    return result.rowcount
 
 
 def _catch_up_unjudged(
