@@ -29,7 +29,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     session_factory = create_session_factory(create_db_engine(settings))
     with HttpFetcher() as fetcher, session_factory() as session:
         try:
-            report = ingest(session, build_source(args.source, fetcher, settings))
+            report = ingest(
+                session,
+                build_source(args.source, fetcher, settings),
+                min_resolution_score=settings.min_resolution_score,
+            )
         except Exception as exc:
             # The run row is already written by the service, with the reason.
             # Nothing is re-logged here beyond the exit path.
@@ -49,6 +53,8 @@ def _render(report: IngestReport) -> str:
             f"Run                        {report.run_id}",
             f"Offers found               {report.items_found}",
             f"Offers new                 {report.items_new}",
+            f"Offers resolved            {report.items_resolved}",
             f"Price points recorded      {report.price_points}",
+            f"Older offers caught up     {report.caught_up}",
         ]
     )

@@ -1,0 +1,173 @@
+# Jeu de test de la résolution — le filet de sécurité du projet.
+#
+# À enrichir CHAQUE FOIS qu'une résolution rate. Un titre qui a piégé le
+# résolveur une fois le piégera à nouveau.
+#
+# Deux sections, séparées volontairement :
+#
+#   real        Titres copiés tels quels depuis le flux LEGO de Dealabs, via
+#               offers.title_raw. C'est eux que compte le critère « au moins
+#               50 titres réels » de TICKETS.md.
+#
+#   spec_traps  Cas construits à la main, dérivés des pièges nommés dans
+#               SPEC.md § 3. Synthétiques et comptés à part, pour que le
+#               décompte des titres réels reste honnête.
+#
+# `set_num: null` signifie « aucune résolution ne doit être acceptée ». C'est
+# une réponse attendue, pas un échec : un lot de plusieurs sets ou un produit
+# qui n'est pas un set LEGO n'a pas de bonne réponse unique.
+#
+# ⚠️  Les étiquettes de `real` ont été PROPOSÉES automatiquement puis relues,
+#     elles n'ont pas encore été validées par un humain. Tant que ce n'est pas
+#     fait, ce fichier mesure la cohérence du résolveur avec lui-même autant
+#     que sa justesse.
+
+real:
+  - title: "LEGO Star Wars 75447 - Le Razor Crest"
+    merchant: "E.Leclerc"
+    set_num: "75447-1"
+  - title: "[Précommande] LEGO Star Wars 75453 - Offworld Sandcrawler et Mudhorn"
+    merchant: "Alternate"
+    set_num: "75453-1"
+  - title: "Lego Technic 42231 - voiture Dodge Charger R/T de Fast and Furious"
+    merchant: "Alternate"
+    set_num: "42231-1"
+  - title: "Jouet de construction Lego City 60511 - Le train à vapeur rétro"
+    merchant: "Alternate"
+    set_num: "60511-1"
+  - title: "Lego 43022 Scuderia Ferrari HP - Casque de Lewis Hamilton"
+    merchant: "Alternate"
+    set_num: "43022-1"
+  - title: "[Précommande] LEGO Super Mario 72051 - Jeu d'arcade Donkey Kong"
+    merchant: "Alternate"
+    set_num: "72051-1"
+  - title: "Lego Botanicals 11506 - 2 Petites Plantes Dansantes"
+    merchant: "Smyths Toys"
+    set_num: "11506-1"
+  - title: "LEGO Icons 10358 - Transformers : Soundwave"
+    merchant: "Amazon"
+    set_num: "10358-1"
+  - title: "Jouet Lego Star Wars Le Razor Crest 75447"
+    merchant: "Amazon"
+    set_num: "75447-1"
+  - title: "Lego Star Wars Smart Play 75422 - La hutte de Yoda et l’entraînement Jedi"
+    merchant: "Amazon"
+    set_num: "75422-1"
+  - title: "Lego Iconic 40638 - Décoration en forme de cœur (via 3€ de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "40638-1"
+  - title: "LEGO Duplo Team Race Cars & Driver 10445"
+    merchant: "Carrefour"
+    set_num: "10445-1"
+  - title: "[Précommande] LEGO Marvel Super Heroes 76348 Le combat légendaire Avengers : Doomsday (846 pièces)"
+    merchant: "BRICKMO"
+    set_num: "76348-1"
+  - title: "Lego Disney Pixar Toy Story 5 43304 - Le Ranch de Blaze"
+    merchant: "Carrefour"
+    set_num: "43304-1"
+  - title: "Lego Animal Crossing 77057 Les maisons créatives : au gré des saisons – 814 pièces"
+    merchant: "Lego"
+    set_num: "77057-1"
+  - title: "Sélection de trois Lego Botanicals : Rose 40460, Tournesols 40524, Les Fleurs de Cerisier 40725 (Via 3€ de Cagnotte)"
+    merchant: "E.Leclerc"
+    set_num: null
+  - title: "LEGO iCONS 10323 - Jeu d’arcade PAC-MAN"
+    merchant: "Cdiscount"
+    set_num: "10323-1"
+  - title: "Lego Ninjago 15ème anniversaire 71858 - La forge des quatre armes"
+    merchant: "Amazon"
+    set_num: "71858-1"
+  - title: "Lego Creator 3-en-1 31384 Animaux Sauvages - Le Colibri Coloré (Via 5,23€ sur la Carte de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "31384-1"
+  - title: "Jouet de construction Lego Technic 42226 - Voiture de Course BMW M4 GT3 Evo"
+    merchant: "Amazon"
+    set_num: "42226-1"
+  - title: "Lego Harry Potter 76463 Le Château de Poudlard : l’Infirmerie (via 17€ sur la carte fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "76463-1"
+  - title: "LEGO Creator 3-en-1 31382 - Les Adorables Animaux : le Chiot Joueur (via 4,77€ sur la carte)"
+    merchant: "E.Leclerc"
+    set_num: "31382-1"
+  - title: "LEGO Harry Potter 76464 - Le chaudron le cours de potions caché (via 10.98€ de remise fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "76464-1"
+  - title: "Lego Creator 31165 Animaux Sauvages: La Famille de Pandas (Via 7,5€ sur la Carte de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "31165-1"
+  - title: "LEGO Speed Champions 77258 - Voiture de course F1 ACADEMY (via 4.54€ sur la carte de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "77258-1"
+  - title: "Lego Icons 40813 - Le Chat Porte-Bonheur (via 6€ sur la carte de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "40813-1"
+  - title: "La maison de Luna Lovegood LEGO Harry Potter 76467 (via 17.09€ de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "76467-1"
+  - title: "LEGO Wednesday 76784 - Le Dahlia Noir, Fleur Artificielle (via 5€ de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "76784-1"
+  - title: "25% de tickets E.Leclerc cagnottés sur une sélection Lego - Ex : Lego Botanicals Marguerites 11508 (via 3€ cagnotté)"
+    merchant: "E.Leclerc"
+    set_num: "11508-1"
+  - title: "Lego Star Wars 75461 Minifigurine de Dark Vador Grand Format 28cm"
+    merchant: "Cdiscount"
+    set_num: "75461-1"
+  - title: "Jouet Lego Creator 31173 - Animaux Sauvages Toucan Tropical (via 3€ sur la carte)"
+    merchant: "E.Leclerc"
+    set_num: "31173-1"
+  - title: "Jouet Lego Speed Champions 77255 Disney Pixar Cars Flash McQueen"
+    merchant: "Smyths Toys"
+    set_num: "77255-1"
+  - title: "Lego Technic 42172 : McLaren P1 Hypercar - 3893 pièces"
+    merchant: "Amazon"
+    set_num: "42172-1"
+  - title: "LEGO Harry Potter 76452 - Magasin d'accessoires de Quidditch et marchand de glaces"
+    merchant: "Rakuten"
+    set_num: "76452-1"
+  - title: "Jouet Lego La Batmobile Tumbler de Batman contre Double-Face et Le Joker 76303"
+    merchant: "Rakuten"
+    set_num: "76303-1"
+  - title: "Jouet Lego Speed Champions Flash McQueen 77255"
+    merchant: "E.Leclerc"
+    set_num: "77255-1"
+  - title: "Jouet Lego Botanicals Icons L'orchidée miniature - 10343"
+    merchant: "Rakuten"
+    set_num: "10343-1"
+  - title: "LEGO Botanicals 11509 - Cactus Fleuri (Via 6.25€ sur la Carte de Fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "11509-1"
+  - title: "35% de réduction sur toute la boutique officielle Lego Rakuten - ex : Lego Creator 10281 Le bonsaï"
+    merchant: "Rakuten"
+    set_num: "10281-1"
+
+spec_traps:
+  # « LEGO Star Wars 2024 » : une année n'est pas un numéro de set.
+  - title: "LEGO Star Wars 2024 - nouveautés de l'année"
+    merchant: null
+    set_num: null
+
+  # « Lot de 1000 pièces » : un décompte de pièces n'est pas un numéro.
+  - title: "Lot de 1000 pièces LEGO en vrac"
+    merchant: null
+    set_num: null
+
+  # Deux candidats, dont un décompte de pièces annoncé comme tel.
+  - title: "LEGO Star Wars 75192 UCS Millennium Falcon 7541 pièces"
+    merchant: null
+    set_num: "75192-1"
+
+  # Le numéro porte déjà son suffixe de variante.
+  - title: "LEGO Icons 10497-1 Galaxy Explorer"
+    merchant: null
+    set_num: "10497-1"
+
+  # Le prix ne doit jamais être lu comme un numéro de set.
+  - title: "LEGO Icons Galaxy Explorer à 79,99€ au lieu de 99,99€"
+    merchant: "Amazon"
+    set_num: null
+
+  # Deux vrais sets nommés dans un même titre : aucune réponse unique.
+  - title: "LEGO 10497 Galaxy Explorer et 10323 PAC-MAN en promo"
+    merchant: null
+    set_num: null

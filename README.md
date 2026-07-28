@@ -53,8 +53,7 @@ même quand le prix n'a pas bougé — « on a regardé et c'était toujours 79,
 est une information en soi.
 
 Le prix et le marchand viennent de l'attribut `pepper:merchant` du flux ; le
-titre n'est lu qu'en secours. La résolution arrive au lot 4, donc les offres
-atterrissent avec `set_num` à NULL et ne déclenchent rien.
+titre n'est lu qu'en secours.
 
 Chaque exécution écrit une ligne dans `runs`, y compris quand elle échoue :
 statut `error`, message nettoyé par `redact_secrets`, et code de sortie 1.
@@ -62,6 +61,28 @@ statut `error`, message nettoyé par `redact_secrets`, et code de sortie 1.
 `DEALABS_RSS_URL` pointe par défaut sur le flux public du groupe. Un flux
 d'alerte personnel s'y substitue sans toucher au code — mais cette URL-là est
 personnelle, traite-la comme un secret.
+
+### Résolution
+
+Chaque offre ingérée est associée à un `set_num`, en deux stratégies :
+
+1. **Numéro de set** — on lit un nombre de 4 à 7 chiffres dans le titre et on
+   le croise avec le catalogue. Score 1.0. C'est elle qui fait le travail :
+   **97 % des titres réels observés portent leur numéro**.
+2. **Correspondance floue** — `rapidfuzz` en `token_sort_ratio` sur
+   `name_normalized`, seulement si aucun numéro n'a été trouvé.
+
+En dessous de `MIN_RESOLUTION_SCORE` (0.85), `set_num` reste NULL et l'offre ne
+déclenchera jamais d'alerte. Le score et la méthode sont stockés dans tous les
+cas, y compris quand le verdict est rejeté.
+
+Les pièges traités, chacun couvert par un test : une année (`LEGO Star Wars
+2024`) n'est pas un numéro, un décompte de pièces non plus, un prix non plus,
+et deux vrais sets dans un même titre donnent NULL plutôt qu'un pari.
+
+`tests/fixtures/titles.yaml` est le filet de sécurité : de vrais titres
+Dealabs avec le `set_num` attendu. **À enrichir chaque fois qu'une résolution
+rate.**
 
 ### Catalogue
 
@@ -110,6 +131,6 @@ les trois fait échouer la suite.
 | 1 | Socle | fait |
 | 2 | Catalogue | fait |
 | 3 | Ingestion Dealabs | fait |
-| 4 | Résolution | à faire |
+| 4 | Résolution | fait (jeu de test à 39/50) |
 | 5 | Détection et alertes | à faire |
 | 6 | Observabilité et déploiement | à faire |

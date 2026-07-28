@@ -147,8 +147,32 @@ retirés, ponctuation retirée, mots vides du domaine retirés : « lego », « 
 « jeu de construction », « à », « au lieu de », le prix, le nom du marchand).
 
 On compare ensuite au champ `name_normalized` de la table `sets` avec
-`rapidfuzz`, en `token_set_ratio`. Le meilleur score, ramené entre 0 et 1,
+`rapidfuzz`, en **`token_sort_ratio`**. Le meilleur score, ramené entre 0 et 1,
 devient le score de résolution, méthode `fuzzy_name`.
+
+> **Correction.** Une version antérieure prescrivait `token_set_ratio`. C'est
+> faux, et d'une façon qui produit exactement les faux positifs que le lot 4
+> interdit : ce scorer renvoie **100 dès que les mots d'un nom du catalogue
+> sont inclus dans le titre**. Mesuré sur le catalogue réel de 27 810 sets,
+> après normalisation du titre :
+>
+> | Titre | `token_set_ratio` | `token_sort_ratio` |
+> |---|---|---|
+> | `Lego Harry Potter … sur PS5` (un jeu vidéo) | **100** → `71022-1` | 67.6 |
+> | `Sélection de trois Botanicals…` (un lot) | **100** → « rose » | 58.8 |
+> | `LEGO Star Wars 75447 - Le Razor Crest` | **100** → `75292-1`, le Razor Crest **de 2019** | 66.7 |
+>
+> Quatre faux positifs sur cinq sondes, tous au score maximum. Ce n'est pas un
+> problème de réglage : `token_set_ratio` ignore par construction ce que le
+> titre contient en plus. `token_sort_ratio` tient compte de la longueur et
+> reste sous le seuil dans tous ces cas.
+
+**Conséquence assumée : la stratégie 2 se déclenche rarement.** Les titres
+Dealabs sont en français, les noms Rebrickable en anglais, et aucune mesure de
+similarité ne franchit honnêtement cet écart. C'est la stratégie 1 qui fait le
+travail — 97 % des titres réels observés portent leur numéro de set. La
+stratégie 2 n'existe que pour les cas où le titre partage des noms propres avec
+le catalogue, et son silence est un comportement correct, pas une panne.
 
 ### Seuil
 
