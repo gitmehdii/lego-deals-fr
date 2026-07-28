@@ -1,5 +1,7 @@
 import json
 
+import httpx
+
 from bricks.log import bind_run_id, configure_logging, get_logger, run_context
 
 
@@ -57,3 +59,19 @@ def test_level_filters_records(capsys):
     get_logger("test").warning("kept")
 
     assert [record["event"] for record in emitted(capsys)] == ["kept"]
+
+
+def test_httpx_chatter_never_reaches_the_log_stream(capsys):
+    """httpx logs the full URL, in plain text, past the redaction processor.
+
+    Two things break at once if it is left on: the stream stops being JSON,
+    and a credential carried in a query string is printed verbatim.
+    """
+    configure_logging("INFO")
+    transport = httpx.MockTransport(lambda request: httpx.Response(200))
+    with httpx.Client(transport=transport) as client:
+        client.get("https://example.test/api?authToken=s3cret")
+
+    out = capsys.readouterr().out
+    assert "s3cret" not in out
+    assert out == ""

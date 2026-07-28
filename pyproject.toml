@@ -51,6 +51,10 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN"]
 "src/bricks/db/migrations/*" = ["ANN", "E501"]
+# RUF001 flags characters that look like ASCII lookalikes. Here the en dashes,
+# curly quotes and zero-width spaces are the fixtures themselves: they are the
+# exact characters normalisation has to flatten, copied from real set names.
+"tests/test_normalize.py" = ["ANN", "RUF001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["bricks"]

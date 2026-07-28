@@ -21,6 +21,16 @@ class Settings(BaseSettings):
     discord_webhook_url: SecretStr | None = None
     dealabs_rss_url: str | None = None
 
+    # Catalogue endpoints. Not secrets, but no external URL is hardcoded here:
+    # the day a provider moves a file, it is a config change, not a release.
+    rebrickable_sets_url: str = (
+        "https://cdn.rebrickable.com/media/downloads/sets.csv.gz"
+    )
+    rebrickable_themes_url: str = (
+        "https://cdn.rebrickable.com/media/downloads/themes.csv.gz"
+    )
+    brickset_api_url: str = "https://brickset.com/api/v3.asmx"
+
     # Percentage, 0-100. Same unit as alerts.discount_pct in the database.
     min_discount_pct: float = Field(default=25.0, ge=0.0, le=100.0)
 

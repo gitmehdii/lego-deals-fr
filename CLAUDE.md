@@ -123,6 +123,9 @@ DATABASE_URL           sqlite:///local.db  ou  sqlite+libsql://...
 BRICKSET_API_KEY
 DISCORD_WEBHOOK_URL
 DEALABS_RSS_URL
+REBRICKABLE_SETS_URL   dump CSV des sets, défaut sur le CDN Rebrickable
+REBRICKABLE_THEMES_URL dump CSV des thèmes, défaut sur le CDN Rebrickable
+BRICKSET_API_URL       défaut https://brickset.com/api/v3.asmx
 MIN_DISCOUNT_PCT       défaut 25      pourcentage, 0-100
 MIN_RESOLUTION_SCORE   défaut 0.85    ratio, 0-1
 LOG_LEVEL              défaut INFO

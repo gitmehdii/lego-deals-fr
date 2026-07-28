@@ -1,9 +1,12 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import structlog
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session
 
 from bricks.config import Settings, get_settings
 from bricks.db.base import Base
@@ -21,6 +24,20 @@ def isolated_settings(monkeypatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def isolated_logging():
+    """Undo configure_logging() after every test.
+
+    structlog is configured process-wide and pins the stream it was handed. A
+    test that runs a CLI under capsys leaves it holding pytest's capture
+    buffer, and the next test that logs anything writes to a closed file. Only
+    a test problem: one CLI invocation configures logging once, against the
+    real stdout.
+    """
+    yield
+    structlog.reset_defaults()
 
 
 def _engine(tmp_path: Path, name: str) -> Engine:
@@ -44,6 +61,18 @@ def engine_from_models(tmp_path: Path) -> Engine:
     engine = _engine(tmp_path, "models")
     Base.metadata.create_all(engine)
     return engine
+
+
+@pytest.fixture
+def session(engine_from_models: Engine) -> Iterator[Session]:
+    """A session on the real schema.
+
+    Built from the models rather than from Alembic because
+    test_schema_fidelity.py already proves the two emit the same DDL, and
+    create_all is the faster of the two.
+    """
+    with Session(engine_from_models) as open_session:
+        yield open_session
 
 
 @pytest.fixture

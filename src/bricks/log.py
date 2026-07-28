@@ -85,8 +85,17 @@ def _redact_processor(
         return {"event": REDACTION_FAILED}
 
 
+# httpx logs one plain-text line per request, at INFO, containing the full
+# URL. Two problems at once: it is not JSON, and it never passes through the
+# redaction processor below, so a credential carried in a query string would
+# be printed verbatim. Our own sources already log what they fetch.
+_NOISY_LIBRARIES = ("httpx", "httpcore")
+
+
 def configure_logging(level: LogLevel = "INFO") -> None:
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level)
+    for name in _NOISY_LIBRARIES:
+        logging.getLogger(name).setLevel(logging.WARNING)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
