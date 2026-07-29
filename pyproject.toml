@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "rapidfuzz>=3.9",
     "sqlalchemy>=2.0",
+    "sqlalchemy-libsql>=0.2.0",
     "structlog>=24.1",
 ]
 

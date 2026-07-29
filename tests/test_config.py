@@ -103,3 +103,14 @@ def test_no_webhook_configured_is_still_valid(monkeypatch):
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
     get_settings.cache_clear()
     assert Settings().discord_webhook_url is None
+
+
+def test_a_turso_url_can_actually_be_opened(monkeypatch):
+    """CLAUDE.md and .env.example both advertise sqlite+libsql:// for
+    production, and the GitHub runner's disk is wiped between runs, so an
+    on-disk SQLite would start empty every time. Without the dialect installed
+    this raises NoSuchModuleError before any query is attempted."""
+    from sqlalchemy import create_engine
+
+    engine = create_engine("sqlite+libsql://db.turso.test?authToken=x")
+    assert engine.dialect.driver == "libsql"
