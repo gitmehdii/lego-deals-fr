@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from bricks.config import Settings
+from bricks.config import Settings, get_settings
 
 
 def settings(**overrides) -> Settings:
@@ -24,7 +24,9 @@ def test_secrets_are_absent_by_default():
 
 
 def test_secrets_do_not_leak_when_rendered(monkeypatch):
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.test/webhook/s3cret")
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/s3cret"
+    )
     config = settings()
     assert "s3cret" not in repr(config)
     assert "s3cret" not in str(config.discord_webhook_url)
@@ -62,3 +64,38 @@ def test_resolution_score_is_a_ratio_between_0_and_1(monkeypatch, value):
     monkeypatch.setenv("MIN_RESOLUTION_SCORE", value)
     with pytest.raises(ValidationError):
         settings()
+
+
+def test_a_channel_link_is_rejected_as_a_webhook_url(monkeypatch):
+    """The "Copy Link" button gives this, and it is not an endpoint."""
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/channels/123456789/987654321"
+    )
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError, match="must be a webhook URL"):
+        Settings()
+
+
+def test_the_rejection_never_echoes_the_url(monkeypatch):
+    """A pydantic error repr must not become the thing that leaks it."""
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://evil.test/s3cret-token")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError) as excinfo:
+        Settings()
+    assert "s3cret-token" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "host", ["discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"]
+)
+def test_every_discord_host_is_accepted(monkeypatch, host):
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", f"https://{host}/api/webhooks/1/tok")
+    get_settings.cache_clear()
+    assert Settings().discord_webhook_url is not None
+
+
+def test_no_webhook_configured_is_still_valid(monkeypatch):
+    """Running without Discord is a supported mode, not an error."""
+    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    get_settings.cache_clear()
+    assert Settings().discord_webhook_url is None

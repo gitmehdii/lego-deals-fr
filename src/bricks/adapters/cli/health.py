@@ -3,8 +3,8 @@ from collections.abc import Sequence
 
 from sqlalchemy.engine import make_url
 
-from bricks.config import Settings, get_settings
-from bricks.log import configure_logging
+from bricks.adapters.cli.common import configure, load_settings
+from bricks.config import Settings
 
 _SECTIONS = (
     "Last successful run per source",
@@ -38,7 +38,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.parse_args(argv)
 
-    settings = get_settings()
-    configure_logging(settings.log_level)
+    settings = load_settings()
+    if settings is None:
+        return 2
+    configure(settings)
     print(_render(settings))
     return 0

@@ -283,3 +283,24 @@ def test_catalog_sync_reports_a_failing_source_without_crashing(
     monkeypatch.setattr(catalog, "HttpFetcher", broken_fetcher)
     assert catalog.main(["sync"]) == 1
     assert "catalog_sync_failed" in capsys.readouterr().out
+
+
+def test_a_bad_webhook_url_is_reported_not_crashed_through(monkeypatch, capsys):
+    """A misconfigured environment is a mistake, not a stack trace."""
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/channels/123456789/987654321"
+    )
+
+    assert ingest.main(["--source", "dealabs"]) == 2
+
+    err = capsys.readouterr().err
+    assert "configuration error" in err
+    assert "DISCORD_WEBHOOK_URL" in err
+    assert "api/webhooks" in err, "the message says what a correct URL looks like"
+
+
+def test_the_configuration_error_never_prints_the_offending_value(monkeypatch, capsys):
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://evil.test/s3cret-token")
+    assert ingest.main(["--source", "dealabs"]) == 2
+    captured = capsys.readouterr()
+    assert "s3cret-token" not in captured.err + captured.out

@@ -4,11 +4,12 @@ from collections.abc import Sequence
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from bricks.adapters.cli.common import configure, load_settings
 from bricks.adapters.webhook.discord import DiscordWebhook, render_console
-from bricks.config import Settings, get_settings
+from bricks.config import Settings
 from bricks.db.models import Run
 from bricks.db.session import create_db_engine, create_session_factory
-from bricks.log import configure_logging, get_logger, redact_secrets
+from bricks.log import get_logger, redact_secrets
 from bricks.services.alerts import AlertsReport, detect_and_alert
 from bricks.services.ingest import IngestReport, ingest
 from bricks.sources.http import HttpFetcher
@@ -38,8 +39,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    settings = get_settings()
-    configure_logging(settings.log_level)
+    settings = load_settings()
+    if settings is None:
+        return 2
+    configure(settings)
     log = get_logger(__name__)
 
     session_factory = create_session_factory(create_db_engine(settings))
