@@ -191,10 +191,42 @@ Deux workflows planifiés, qui appellent le CLI et rien d'autre :
 Secrets GitHub à renseigner : `DATABASE_URL`, `DISCORD_WEBHOOK_URL`,
 `DEALABS_RSS_URL`, `BRICKSET_API_KEY`.
 
-`DATABASE_URL` **doit** pointer sur Turso (`sqlite+libsql://…`) : le disque
-d'un runner est effacé entre deux exécutions, donc un SQLite sur fichier
-repartirait vide à chaque fois et `price_points` — la seule table que personne
-ne pourrait reconstruire — n'accumulerait jamais rien.
+`DATABASE_URL` **doit** pointer sur Turso : le disque d'un runner est effacé
+entre deux exécutions, donc un SQLite sur fichier repartirait vide à chaque
+fois et `price_points` — la seule table que personne ne pourrait reconstruire
+— n'accumulerait jamais rien.
+
+```
+sqlite+libsql://<base>.turso.io/?authToken=<token>&secure=true
+```
+
+Cette URL s'écrit sous cette forme exacte, pour deux raisons qui ne se voient
+pas :
+
+- **`sqlite+`** — `turso db show --url` donne `libsql://…`. Aucun dialecte
+  SQLAlchemy ne répond à ce nom : collée telle quelle, l'URL échoue en
+  `NoSuchModuleError`, loin de l'endroit où on l'a saisie.
+- **`secure=true`** — le pilote `sqlalchemy-libsql` choisit `http` ou `https`
+  d'après ce drapeau, **et le met à `false` par défaut**. Sans lui, la
+  connexion part en clair avec le token dans la query string, et rien ne le
+  signale.
+
+Les deux formes sont refusées au démarrage, avec la forme attendue dans le
+message. `tests/test_config.py` épingle la règle au pilote lui-même plutôt
+qu'à ce paragraphe : chaque URL acceptée est passée au vrai dialecte, et le
+test échoue si l'une d'elles construit un `http://`.
+
+Mise en place :
+
+```bash
+turso db create bricks
+turso db show bricks --url          # libsql://bricks-<org>.turso.io
+turso db tokens create bricks
+```
+
+Recomposer l'URL à la main dans le secret GitHub `DATABASE_URL`, puis lancer
+`catalogue.yml` à la main une première fois : `ingest.yml` applique bien les
+migrations, mais sans catalogue aucune offre ne se résout.
 
 Aucune ligne de `src/` ne sait qu'elle tourne dans GitHub Actions. Passer sur
 un VPS, c'est changer le déclencheur.

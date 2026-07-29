@@ -1,5 +1,8 @@
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy_libsql.libsql import SQLiteDialect_libsql
 
 from bricks.config import Settings, get_settings
 
@@ -105,12 +108,120 @@ def test_no_webhook_configured_is_still_valid(monkeypatch):
     assert Settings().discord_webhook_url is None
 
 
-def test_a_turso_url_can_actually_be_opened(monkeypatch):
+SECURE_TURSO_URL = "sqlite+libsql://db.turso.test/?authToken=x&secure=true"
+
+# Every spelling that must be refused, and why it is dangerous or useless.
+REJECTED_DATABASE_URLS = [
+    # The obvious URL, and the one Turso's own docs lead you to write. The
+    # driver defaults `secure` to false, so this connects over plain http with
+    # the token in the query string.
+    "sqlite+libsql://db.turso.test/?authToken=x",
+    "sqlite+libsql://db.turso.test?authToken=x",
+    "sqlite+libsql://db.turso.test/?authToken=x&secure=false",
+    # A flag the driver itself cannot read is not a flag that made it secure.
+    "sqlite+libsql://db.turso.test/?authToken=x&secure=oui",
+    # Turso's own scheme, straight from `turso db show --url`. No SQLAlchemy
+    # dialect answers to it.
+    "libsql://db.turso.test/?authToken=x&secure=true",
+    "not a url at all",
+]
+
+ACCEPTED_DATABASE_URLS = [
+    "sqlite:///local.db",
+    # A local file opened through the libSQL driver never leaves the machine,
+    # so it needs neither a scheme nor a token.
+    "sqlite+libsql:///local.db",
+    SECURE_TURSO_URL,
+    "sqlite+libsql://db.turso.test/?authToken=x&secure=1",
+    "sqlite+libsql://db.turso.test/?authToken=x&secure=yes",
+]
+
+
+def test_a_turso_url_can_actually_be_opened():
     """CLAUDE.md and .env.example both advertise sqlite+libsql:// for
     production, and the GitHub runner's disk is wiped between runs, so an
     on-disk SQLite would start empty every time. Without the dialect installed
     this raises NoSuchModuleError before any query is attempted."""
     from sqlalchemy import create_engine
 
-    engine = create_engine("sqlite+libsql://db.turso.test?authToken=x")
+    engine = create_engine(SECURE_TURSO_URL)
     assert engine.dialect.driver == "libsql"
+
+
+@pytest.mark.parametrize("url", REJECTED_DATABASE_URLS)
+def test_an_unusable_database_url_is_rejected(monkeypatch, url):
+    monkeypatch.setenv("DATABASE_URL", url)
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("url", ACCEPTED_DATABASE_URLS)
+def test_a_usable_database_url_is_accepted(monkeypatch, url):
+    monkeypatch.setenv("DATABASE_URL", url)
+    get_settings.cache_clear()
+    assert Settings().database_url == url
+
+
+def test_rejecting_a_database_url_never_echoes_its_token(monkeypatch):
+    """The whole point of the check is the token in that query string."""
+    monkeypatch.setenv(
+        "DATABASE_URL", "sqlite+libsql://db.turso.test/?authToken=s3cret"
+    )
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError) as excinfo:
+        Settings()
+    assert "s3cret" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("url", [*REJECTED_DATABASE_URLS, *ACCEPTED_DATABASE_URLS])
+def test_the_secure_rule_is_pinned_to_the_driver(monkeypatch, url):
+    """Pin the rule to sqlalchemy-libsql rather than to a comment.
+
+    `secure` is the driver's flag, not ours, and the validator only restates
+    what it means. This runs both lists through the real dialect and asserts
+    the two agree: nothing we accept builds a plain-http connection, and
+    everything we reject over that flag genuinely would have. If the driver
+    ever flips its default, this fails instead of quietly over-refusing.
+    """
+    accepted = _accepts(monkeypatch, url)
+
+    try:
+        parsed = make_url(url)
+    except ArgumentError:
+        assert not accepted, f"{url} cannot even be parsed, it must be refused"
+        return
+    if parsed.drivername != "sqlite+libsql":
+        return
+
+    built = _connect_url(parsed)
+    if built is None:
+        # The driver cannot build a connection from it at all. Refusing at
+        # startup with our own message beats failing later on the driver's
+        # "String is not true/false".
+        assert not accepted, f"{url} is unusable but was accepted"
+    elif accepted:
+        assert not built.startswith("http://"), f"{url} would send the token in clear"
+    else:
+        assert built.startswith("http://"), (
+            f"{url} was refused, but the driver would not have used plain http"
+        )
+
+
+def _accepts(monkeypatch, url: str) -> bool:
+    monkeypatch.setenv("DATABASE_URL", url)
+    get_settings.cache_clear()
+    try:
+        Settings()
+    except ValidationError:
+        return False
+    return True
+
+
+def _connect_url(parsed: URL) -> str | None:
+    """What the real dialect would dial, or None if it refuses the URL."""
+    try:
+        args, _ = SQLiteDialect_libsql().create_connect_args(parsed)
+    except ValueError:
+        return None
+    return args[0]

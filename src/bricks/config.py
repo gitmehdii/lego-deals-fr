@@ -4,8 +4,15 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic import SecretStr as SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy.util import asbool
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+# The form a remote libSQL URL has to take, quoted in every error below so the
+# fix is in the message rather than in a document the reader has to go find.
+LIBSQL_URL_SHAPE = "sqlite+libsql://<db>.turso.io/?authToken=<token>&secure=true"
 
 # What Discord's "Copy Webhook URL" button produces. The far more available
 # "Copy Link" button on a channel gives https://discord.com/channels/... — a
@@ -62,6 +69,49 @@ class Settings(BaseSettings):
     def _uppercase_log_level(cls, value: object) -> object:
         return value.upper() if isinstance(value, str) else value
 
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _turso_url_must_be_secure(cls, value: str) -> str:
+        """Refuse a Turso URL that would carry its auth token in the clear.
+
+        sqlalchemy-libsql picks http:// or https:// from a `secure` flag in the
+        query string and **defaults it to false**, so the obvious URL — host
+        plus authToken — connects over plain http with the token sitting in
+        that same query string. Nothing downstream notices: the run either
+        works or fails for a reason that says nothing about why.
+
+        Never echoes the value, which is itself the credential.
+        """
+        try:
+            url = make_url(value)
+        except ArgumentError:
+            raise ValueError(
+                "DATABASE_URL is not a valid SQLAlchemy URL. Expected "
+                f"sqlite:///local.db locally, or {LIBSQL_URL_SHAPE}"
+            ) from None
+
+        # What Turso's dashboard hands out. SQLAlchemy has no dialect under
+        # that name and fails at create_engine() with NoSuchModuleError, far
+        # from the paste that caused it.
+        if url.drivername == "libsql":
+            raise ValueError(
+                "libsql:// is Turso's own scheme, not a SQLAlchemy one. "
+                f"Prefix it with sqlite+ : {LIBSQL_URL_SHAPE}"
+            )
+
+        # No host means a local file opened through the libSQL driver, which
+        # never leaves the machine and needs no scheme at all.
+        if "libsql" not in url.drivername or not url.host:
+            return value
+
+        if not _is_true(url.query.get("secure")):
+            raise ValueError(
+                "a remote libSQL URL must carry secure=true, otherwise the "
+                "driver connects over plain http and the authToken travels in "
+                f"clear text. Expected {LIBSQL_URL_SHAPE}"
+            )
+        return value
+
     @field_validator("discord_webhook_url", mode="after")
     @classmethod
     def _must_be_a_webhook_url(cls, value: SecretStr | None) -> SecretStr | None:
@@ -81,6 +131,23 @@ class Settings(BaseSettings):
                 "not an endpoint."
             )
         return value
+
+
+def _is_true(flag: object) -> bool:
+    """Read `secure` exactly as the dialect will.
+
+    asbool is what sqlalchemy-libsql itself coerces the flag with, so the two
+    cannot drift on which spellings count as true. A value it refuses is not
+    secure either; the caller reports the shape it wants instead.
+    """
+    if isinstance(flag, tuple):
+        flag = flag[-1] if flag else None
+    if flag is None:
+        return False
+    try:
+        return bool(asbool(flag))
+    except ValueError:
+        return False
 
 
 @lru_cache

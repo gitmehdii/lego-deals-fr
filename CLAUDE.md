@@ -119,7 +119,8 @@ Tout passe par variables d'environnement, chargées via `pydantic-settings`.
 Un `.env.example` à jour est maintenu à la racine.
 
 ```
-DATABASE_URL           sqlite:///local.db  ou  sqlite+libsql://...
+DATABASE_URL           sqlite:///local.db
+                       ou sqlite+libsql://<base>.turso.io/?authToken=…&secure=true
 BRICKSET_API_KEY
 DISCORD_WEBHOOK_URL
 DEALABS_RSS_URL
@@ -143,6 +144,15 @@ l'URL complète dans les deux cas :
   ne masque que les mots de passe d'URL, celui-ci passe en clair.
 - **en userinfo** : `postgresql://owner:password@host/db`, la forme de Neon et
   de tout Postgres managé.
+
+Un credential ne fuit pas seulement par un log : il fuit aussi par le
+transport. `sqlalchemy-libsql` choisit `http` ou `https` d'après un drapeau
+`secure` de la query string **et le met à `false` par défaut**, donc l'URL
+Turso évidente envoie son `authToken` en clair sans que rien ne le signale.
+`DATABASE_URL` est validée au démarrage : une URL libSQL distante sans
+`secure=true` est refusée, tout comme le `libsql://` sans `sqlite+` que donne
+le tableau de bord Turso. Un test épingle la règle au pilote lui-même, pas à
+ce paragraphe.
 
 **Tout texte d'exception passe par `bricks.log.redact_secrets()` avant d'être
 journalisé ou persisté.** Cela vaut en particulier pour `runs.error`, qui reçoit
