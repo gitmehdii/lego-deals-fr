@@ -16,8 +16,11 @@ from bricks.core.resolve import CatalogueEntry, SetIndex, resolve
 FIXTURE = Path(__file__).parent / "fixtures" / "titles.yaml"
 THRESHOLD = 0.85
 
-# Deliberately below the ticket's 90 %, because the fixture is dominated by
-# titles that carry an explicit set number. It is a floor, not a target.
+# The ticket's number exactly. A floor, not a target: the fixture is dominated
+# by titles carrying an explicit set number, and the index below is built from
+# the fixture's own expectations, so strategy 1 has an easy time here by
+# construction. What this file really guards is which number gets picked out of
+# a title, and the decoys are what make that non-trivial.
 MIN_ACCURACY = 0.90
 
 
