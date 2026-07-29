@@ -224,9 +224,27 @@ turso db show bricks --url          # libsql://bricks-<org>.turso.io
 turso db tokens create bricks
 ```
 
-Recomposer l'URL à la main dans le secret GitHub `DATABASE_URL`, puis lancer
-`catalogue.yml` à la main une première fois : `ingest.yml` applique bien les
-migrations, mais sans catalogue aucune offre ne se résout.
+Recomposer l'URL à la main, puis la vérifier depuis la machine avant de la
+coller dans un secret GitHub — un runner est un mauvais endroit pour découvrir
+qu'une URL est fausse :
+
+```bash
+export DATABASE_URL='sqlite+libsql://…/?authToken=…&secure=true'
+uv run alembic upgrade head
+uv run python -m bricks.health      # « Database driver  sqlite+libsql »
+```
+
+`health` sur une base vide lit les six tables et sort en 0 : c'est le test de
+fumée du branchement, il n'en existe pas de plus court.
+
+Ensuite renseigner les quatre secrets, et lancer `catalogue.yml` à la main une
+première fois : `ingest.yml` applique bien les migrations, mais sans catalogue
+aucune offre ne se résout.
+
+Ce qui reste non vérifié à ce jour : tout ce qui précède a été exercé de bout
+en bout **à travers le dialecte libSQL sur un fichier local** — migrations,
+lectures, écritures, et l'insertion en masse des 27 843 sets. Le trajet
+distant, lui, n'a jamais été essayé faute d'identifiants.
 
 Aucune ligne de `src/` ne sait qu'elle tourne dans GitHub Actions. Passer sur
 un VPS, c'est changer le déclencheur.
@@ -251,5 +269,14 @@ les trois fait échouer la suite.
 | 2 | Catalogue | fait |
 | 3 | Ingestion Dealabs | fait |
 | 4 | Résolution | fait (jeu de test à 39/50) |
-| 5 | Détection et alertes | fait (envoi réel non vérifié) |
-| 6 | Observabilité et déploiement | health + alerte de santé + workflows faits ; Turso à brancher |
+| 5 | Détection et alertes | fait (rendu visuel des embeds jamais regardé) |
+| 6 | Observabilité et déploiement | code fait et vérifié ; reste le branchement Turso, qui demande des identifiants |
+
+Le lot 6 est terminé côté code. Ce qui a été vérifié à la main : `health` sur
+les données réelles, et l'avertissement de santé qui part **exactement à la
+3ᵉ exécution**, aussi bien quand le flux est injoignable que quand il répond
+un RSS valide et vide.
+
+Ce qui ne peut pas l'être sans identifiants Turso ni secrets GitHub : la
+connexion distante elle-même, et les 48 h de fonctionnement autonome que
+TICKETS.md demande.
