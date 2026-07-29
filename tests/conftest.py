@@ -27,6 +27,20 @@ def isolated_settings(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_database(monkeypatch, tmp_path):
+    """No test may ever reach the developer's local.db.
+
+    Without this, anything that forgets to set DATABASE_URL silently falls
+    back to the default `sqlite:///local.db` — which passes on a machine where
+    that file happens to exist and fails in CI, or worse, writes to it.
+
+    Tests that need tables still create them; this only guarantees the target
+    is disposable. A test setting its own DATABASE_URL overrides this.
+    """
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'isolated.db'}")
+
+
+@pytest.fixture(autouse=True)
 def isolated_logging():
     """Undo configure_logging() after every test.
 

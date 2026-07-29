@@ -9,7 +9,11 @@ def settings(**overrides) -> Settings:
     return Settings(_env_file=None, **overrides)
 
 
-def test_defaults_match_the_documented_ones():
+def test_defaults_match_the_documented_ones(monkeypatch):
+    # The isolated_database fixture points DATABASE_URL at a temp file so no
+    # test can touch the developer's local.db. This is the one test that wants
+    # the bare default, so it clears the variable first.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     config = settings()
     assert config.database_url == "sqlite:///local.db"
     assert config.min_discount_pct == 25.0
