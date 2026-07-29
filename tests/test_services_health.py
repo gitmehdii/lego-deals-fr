@@ -1,9 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import func, select
 
-from bricks.db.models import Alert, Offer, Run, Set
-from bricks.services.health import collect_health
+from bricks.db.models import Alert, HealthAlert, Offer, Run, Set
+from bricks.services.health import collect_health, warn_about_dead_sources
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
 
@@ -195,3 +196,113 @@ def test_the_catalogue_reports_how_much_of_it_has_a_price(session):
 
     report = _collect(session)
     assert (report.catalogue_sets, report.catalogue_with_rrp) == (2, 1)
+
+
+# --- warning about dead sources --------------------------------------------
+
+
+class WarningRecorder:
+    def __init__(self):
+        self.sent = []
+
+    def __call__(self, warning):
+        self.sent.append(warning)
+
+
+def _warn(session, send=None, now=NOW):
+    return warn_about_dead_sources(session, send=send, now=now)
+
+
+def _kill(session, *, status="ok", found=0, count=3):
+    for ago in range(count, 0, -1):
+        _run(session, status=status, found=found, ago_hours=ago)
+    session.commit()
+
+
+def test_a_healthy_source_produces_no_warning(session):
+    _run(session, found=30)
+    session.commit()
+    assert _warn(session, WarningRecorder()) == []
+
+
+def test_three_empty_runs_warn_once(session):
+    _kill(session)
+    recorder = WarningRecorder()
+
+    warnings = _warn(session, recorder)
+
+    assert len(warnings) == 1
+    assert warnings[0].reason == "no_items"
+    assert warnings[0].source == "dealabs"
+    assert len(recorder.sent) == 1
+    assert session.scalar(select(func.count()).select_from(HealthAlert)) == 1
+
+
+def test_three_failures_warn_with_the_more_telling_reason(session):
+    """An exception says more than a zero count, so it wins."""
+    _kill(session, status="error")
+    (warning,) = _warn(session, WarningRecorder())
+    assert warning.reason == "failing"
+
+
+def test_a_second_run_inside_24h_does_not_warn_again(session):
+    """SPEC.md: not repeated more than once per 24h."""
+    _kill(session)
+    recorder = WarningRecorder()
+
+    _warn(session, recorder)
+    again = _warn(session, recorder, now=NOW + timedelta(hours=23))
+
+    assert again == []
+    assert len(recorder.sent) == 1
+
+
+def test_after_24h_the_warning_repeats(session):
+    _kill(session)
+    recorder = WarningRecorder()
+
+    _warn(session, recorder)
+    _warn(session, recorder, now=NOW + timedelta(hours=25))
+
+    assert len(recorder.sent) == 2
+
+
+def test_the_dry_run_warns_nobody_and_records_nothing(session):
+    _kill(session)
+
+    warnings = _warn(session, send=None)
+
+    assert len(warnings) == 1, "still computed, so --dry-run can show it"
+    assert session.scalar(select(func.count()).select_from(HealthAlert)) == 0
+
+
+def test_a_failed_send_records_no_warning(session):
+    """The table counts warnings actually delivered, like alerts does."""
+    _kill(session)
+
+    def explode(warning):
+        raise RuntimeError("discord is down")
+
+    with pytest.raises(RuntimeError):
+        _warn(session, explode)
+
+    session.rollback()
+    assert session.scalar(select(func.count()).select_from(HealthAlert)) == 0
+
+
+def test_each_source_is_warned_about_separately(session):
+    _kill(session)
+    _run(session, source="other", found=30)
+    session.commit()
+
+    (warning,) = _warn(session, WarningRecorder())
+    assert warning.source == "dealabs"
+
+
+def test_the_warning_carries_the_streak_and_the_last_success(session):
+    _run(session, found=30, ago_hours=10)
+    _kill(session)
+
+    (warning,) = _warn(session, WarningRecorder())
+    assert warning.consecutive_runs == 3
+    assert warning.last_ok_at is not None

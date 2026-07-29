@@ -14,7 +14,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from bricks.db.models import Alert, Offer, Run, Set
+from bricks.db.models import Alert, HealthAlert, HealthAlertReason, Offer, Run, Set
+from bricks.log import get_logger
 
 # SPEC.md section 7: this many consecutive empty or failed runs is what
 # "the pipeline has died" looks like from the outside.
@@ -25,6 +26,13 @@ CONSECUTIVE_BAD_RUNS_BEFORE_WARNING = 3
 RESOLUTION_SAMPLE_SIZE = 100
 
 ALERT_WINDOW_DAYS = 7
+
+_log = get_logger(__name__)
+
+# SPEC.md section 7: the warning must not be repeated more than once a day.
+# A source stays broken for hours; repeating every fifteen minutes would train
+# the reader to ignore it, which is the one outcome worse than silence.
+MIN_HOURS_BETWEEN_WARNINGS = 24
 
 
 class SourceHealth(BaseModel):
@@ -38,10 +46,17 @@ class SourceHealth(BaseModel):
     @property
     def looks_dead(self) -> bool:
         """Three runs finding nothing, or three failing, per SPEC.md."""
+        return self.death_reason is not None
+
+    @property
+    def death_reason(self) -> HealthAlertReason | None:
+        """Failing outranks silent: an exception says more than a zero count."""
         threshold = CONSECUTIVE_BAD_RUNS_BEFORE_WARNING
-        return (
-            self.consecutive_empty >= threshold or self.consecutive_failed >= threshold
-        )
+        if self.consecutive_failed >= threshold:
+            return "failing"
+        if self.consecutive_empty >= threshold:
+            return "no_items"
+        return None
 
 
 class HealthReport(BaseModel):
@@ -139,3 +154,70 @@ def _resolved_in_sample(session: Session) -> int:
         select(func.count()).select_from(recent).where(recent.c.set_num.is_not(None))
     )
     return session.scalar(query) or 0
+
+
+class HealthWarning(BaseModel):
+    """A source has stopped producing. What a reader needs, no presentation."""
+
+    source: str
+    reason: HealthAlertReason
+    consecutive_runs: int
+    last_ok_at: datetime | None = None
+
+
+def warn_about_dead_sources(
+    session: Session,
+    *,
+    send: Callable[[HealthWarning], None] | None = None,
+    now: datetime | None = None,
+) -> list[HealthWarning]:
+    """Warn once per source per day about sources that have gone quiet.
+
+    `send` is injected, and None is the dry run: warnings are computed and
+    returned, nothing is sent and no row is written. Mirrors detect_and_alert
+    so both paths behave the same way under --dry-run.
+    """
+    now = now or datetime.now(UTC)
+    report = collect_health(session, now=now)
+
+    warnings: list[HealthWarning] = []
+    for source in report.sources:
+        reason = source.death_reason
+        if reason is None:
+            continue
+        if _warned_recently(session, source.source, now):
+            _log.info("health_warning_suppressed", source=source.source)
+            continue
+
+        warning = HealthWarning(
+            source=source.source,
+            reason=reason,
+            consecutive_runs=(
+                source.consecutive_failed
+                if reason == "failing"
+                else source.consecutive_empty
+            ),
+            last_ok_at=source.last_ok_at,
+        )
+        warnings.append(warning)
+
+        if send is None:
+            continue
+        send(warning)
+        # Recorded only after a successful send, so the 24h rule counts
+        # warnings that were actually delivered.
+        session.add(HealthAlert(source=warning.source, reason=reason, sent_at=now))
+        session.commit()
+        _log.warning("health_warning_sent", source=warning.source, reason=reason)
+
+    return warnings
+
+
+def _warned_recently(session: Session, source: str, now: datetime) -> bool:
+    cutoff = now - timedelta(hours=MIN_HOURS_BETWEEN_WARNINGS)
+    last = session.scalars(
+        select(HealthAlert)
+        .where(HealthAlert.source == source)
+        .order_by(HealthAlert.sent_at.desc())
+    ).first()
+    return last is not None and last.sent_at > cutoff
