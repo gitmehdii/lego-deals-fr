@@ -4,14 +4,18 @@ import httpx
 import pytest
 
 from bricks.adapters.webhook.discord import (
+    DiscordHealthWebhook,
     DiscordWebhook,
     build_embed,
+    build_health_embed,
     embed_colour,
     format_date,
     format_euros,
     render_console,
+    render_health_console,
 )
 from bricks.services.alerts import AlertPayload
+from bricks.services.health import HealthWarning
 from bricks.sources.http import HttpFetcher, SourceUnavailableError
 
 WEBHOOK = "https://discord.com/api/webhooks/123456789/s3cret-token"
@@ -191,3 +195,85 @@ def test_a_refused_send_raises_rather_than_pretending_it_worked():
     webhook = _webhook(lambda request: httpx.Response(500))
     with pytest.raises(SourceUnavailableError):
         webhook.send(PAYLOAD)
+
+
+# --- health warnings -------------------------------------------------------
+
+WARNING = HealthWarning(
+    source="dealabs",
+    reason="no_items",
+    consecutive_runs=3,
+    last_ok_at=datetime(2026, 3, 12, 9, 0, tzinfo=UTC),
+)
+
+
+def test_a_health_warning_never_looks_like_a_deal():
+    """SPEC.md section 7: visually distinct from the deal alerts."""
+    warning = build_health_embed(WARNING)
+    deal = build_embed(PAYLOAD)
+
+    assert warning["color"] != deal["color"]
+    assert warning["color"] != embed_colour(None), "not the no-discount grey either"
+    assert "thumbnail" not in warning
+    assert "fields" not in warning
+    assert "€" not in warning["description"], "a warning quotes no price"
+
+
+def test_the_warning_says_which_source_and_for_how_long():
+    description = build_health_embed(WARNING)["description"]
+    assert "dealabs" in description
+    assert "3" in description
+    assert "12 mars 2026" in description
+
+
+def test_a_source_that_never_worked_says_so():
+    never = WARNING.model_copy(update={"last_ok_at": None})
+    assert "jamais" in build_health_embed(never)["description"]
+
+
+def test_the_two_reasons_read_differently():
+    silent = build_health_embed(WARNING)["description"]
+    failing = build_health_embed(WARNING.model_copy(update={"reason": "failing"}))[
+        "description"
+    ]
+    assert silent != failing
+
+
+def test_the_warning_is_in_french():
+    assert "Dernier succès" in build_health_embed(WARNING)["description"]
+
+
+def test_the_console_warning_carries_the_same_facts():
+    rendered = render_health_console(WARNING)
+    assert "dealabs" in rendered
+    assert "3" in rendered
+
+
+def test_a_health_warning_posts_to_the_same_webhook():
+    calls = []
+    fetcher = HttpFetcher(
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: calls.append(request) or httpx.Response(204)
+            )
+        ),
+        sleep=lambda _: None,
+    )
+    DiscordHealthWebhook(fetcher, webhook_url=WEBHOOK).send(WARNING)
+
+    (call,) = calls
+    assert call.method == "POST"
+    assert b"pipeline" in call.content
+    # The token belongs in the outgoing request; what must never carry it is a
+    # log line or an exception, which the next test covers.
+    assert str(call.url) == WEBHOOK
+
+
+def test_a_refused_warning_never_leaks_the_webhook_url():
+    fetcher = HttpFetcher(
+        httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(401))),
+        sleep=lambda _: None,
+    )
+    with pytest.raises(SourceUnavailableError) as excinfo:
+        DiscordHealthWebhook(fetcher, webhook_url=WEBHOOK).send(WARNING)
+    assert "s3cret-token" not in str(excinfo.value)

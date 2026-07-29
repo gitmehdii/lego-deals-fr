@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from bricks.log import get_logger, redact_secrets
 from bricks.services.alerts import AlertPayload
+from bricks.services.health import HealthWarning
 from bricks.sources.http import HttpFetcher, SourceUnavailableError
 
 # Timestamps are stored in UTC and converted exactly once, here, at the moment
@@ -133,13 +134,56 @@ class DiscordWebhook:
         self._webhook_url = webhook_url
 
     def send(self, payload: AlertPayload) -> None:
+        self._post({"embeds": [build_embed(payload)]})
+        _log.info("alert_sent", offer_id=payload.offer_id, reason=payload.reason)
+
+    def _post(self, body: dict) -> None:
         try:
-            self._fetcher.post_json(
-                self._webhook_url, json={"embeds": [build_embed(payload)]}
-            )
+            self._fetcher.post_json(self._webhook_url, json=body)
         except SourceUnavailableError as exc:
             # Never let the URL reach a log, even inside an exception message.
             raise SourceUnavailableError(
-                f"discord webhook refused the alert: {redact_secrets(exc)}"
+                f"discord webhook refused the message: {redact_secrets(exc)}"
             ) from None
-        _log.info("alert_sent", offer_id=payload.offer_id, reason=payload.reason)
+
+
+# Deliberately not one of the deal colours. SPEC.md section 6 gives green,
+# orange and grey to discounts; a warning that shared one of them would read
+# as a deal at a glance, which is the whole thing to avoid.
+_ALARM_RED = 0xC0392B
+
+_WARNING_TEXT = {
+    "no_items": "n'a rien trouvé depuis {runs} exécutions",
+    "failing": "échoue depuis {runs} exécutions",
+}
+
+
+def build_health_embed(warning: HealthWarning) -> dict:
+    """Visually distinct from a deal: no thumbnail, no price, alarm colour."""
+    lines = [
+        f"La source **{warning.source}** "
+        + _WARNING_TEXT[warning.reason].format(runs=warning.consecutive_runs)
+        + ".",
+        "",
+        "Dernier succès : "
+        + (format_date(warning.last_ok_at) if warning.last_ok_at else "jamais"),
+    ]
+    return {
+        "title": "⚠️  Le pipeline ne rapporte plus rien",
+        "color": _ALARM_RED,
+        "description": "\n".join(lines),
+    }
+
+
+def render_health_console(warning: HealthWarning) -> str:
+    body = _WARNING_TEXT[warning.reason].format(runs=warning.consecutive_runs)
+    last_ok = format_date(warning.last_ok_at) if warning.last_ok_at else "jamais"
+    return f"⚠️  {warning.source} {body}. Dernier succès : {last_ok}."
+
+
+class DiscordHealthWebhook(DiscordWebhook):
+    """The same webhook, carrying a warning rather than a deal."""
+
+    def send(self, warning: HealthWarning) -> None:  # type: ignore[override]
+        self._post({"embeds": [build_health_embed(warning)]})
+        _log.warning("health_warning_delivered", source=warning.source)
