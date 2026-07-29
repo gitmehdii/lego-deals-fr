@@ -1,4 +1,5 @@
 import gzip
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -109,22 +110,61 @@ def dealabs_network(monkeypatch, tmp_path):
     return network
 
 
-def test_health_prints_a_page_without_crashing(capsys):
+@pytest.fixture
+def empty_database(monkeypatch, tmp_path):
+    """health reads the database, so it needs one to read."""
+    database_url = f"sqlite:///{tmp_path / 's3cret-path.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    Base.metadata.create_all(create_engine(database_url))
+    return database_url
+
+
+def test_health_prints_a_page_without_crashing(empty_database, capsys):
     assert health.main([]) == 0
     out = capsys.readouterr().out
     assert "bricks pipeline health" in out
-    assert "Active offers" in out
+    assert "Offers" in out
+    assert "no run recorded yet" in out, "an empty database is not an error"
 
 
-def test_health_never_prints_the_database_url(monkeypatch, capsys):
-    monkeypatch.setenv("DATABASE_URL", "sqlite+libsql://db.turso.test?authToken=s3cret")
+def test_health_never_prints_the_database_url(empty_database, capsys):
+    """A libSQL URL carries an auth token, so only the driver is ever shown."""
     assert health.main([]) == 0
     out = capsys.readouterr().out
-    assert "s3cret" not in out
-    assert "db.turso.test" not in out
+    assert "s3cret-path" not in out
+    assert "Database driver            sqlite" in out
 
 
-def test_health_reports_secret_presence_not_value(monkeypatch, capsys):
+def test_health_reports_the_real_counters(empty_database, dealabs_network, capsys):
+    assert ingest.main(["--source", "dealabs"]) == 0
+    capsys.readouterr()
+
+    assert health.main([]) == 0
+    out = capsys.readouterr().out
+    assert "dealabs" in out
+    assert "ok · just now" in out
+
+
+def test_health_exits_nonzero_when_a_source_looks_dead(empty_database, capsys):
+    """So a cron notices without anyone reading the page."""
+    with Session(create_engine(empty_database)) as session:
+        for _ in range(3):
+            session.add(
+                Run(
+                    source="dealabs",
+                    started_at=datetime.now(UTC),
+                    finished_at=datetime.now(UTC),
+                    items_found=0,
+                    status="ok",
+                )
+            )
+        session.commit()
+
+    assert health.main([]) == 1
+    assert "looks dead" in capsys.readouterr().out
+
+
+def test_health_reports_secret_presence_not_value(empty_database, monkeypatch, capsys):
     monkeypatch.setenv("BRICKSET_API_KEY", "s3cret")
     assert health.main([]) == 0
     out = capsys.readouterr().out
