@@ -78,9 +78,13 @@ Les pièges traités, chacun couvert par un test : une année (`LEGO Star Wars
 2024`) n'est pas un numéro, un décompte de pièces non plus, un prix non plus,
 et deux vrais sets dans un même titre donnent NULL plutôt qu'un pari.
 
-`tests/fixtures/titles.yaml` est le filet de sécurité : de vrais titres
-Dealabs avec le `set_num` attendu. **À enrichir chaque fois qu'une résolution
-rate.**
+`tests/fixtures/titles.yaml` est le filet de sécurité : 52 vrais titres
+Dealabs avec le `set_num` attendu, plus 6 pièges construits à la main et
+comptés à part. **À enrichir chaque fois qu'une résolution rate.**
+
+Les étiquettes sont proposées automatiquement puis croisées avec le catalogue
+— le nom officiel anglais doit correspondre au titre français — mais **aucune
+n'a encore été relue par un humain**, et le fichier le dit en en-tête.
 
 ### Détection et alertes
 
@@ -268,7 +272,7 @@ les trois fait échouer la suite.
 | 1 | Socle | fait |
 | 2 | Catalogue | fait |
 | 3 | Ingestion Dealabs | fait |
-| 4 | Résolution | fait (jeu de test à 39/50) |
+| 4 | Résolution | fait (52 titres réels, 52/52, zéro faux positif) |
 | 5 | Détection et alertes | fait (rendu visuel des embeds jamais regardé) |
 | 6 | Observabilité et déploiement | code fait et vérifié ; reste le branchement Turso, qui demande des identifiants |
 

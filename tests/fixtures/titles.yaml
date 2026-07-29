@@ -21,6 +21,11 @@
 #     elles n'ont pas encore été validées par un humain. Tant que ce n'est pas
 #     fait, ce fichier mesure la cohérence du résolveur avec lui-même autant
 #     que sa justesse.
+#
+#     Elles ne sont pas devinées pour autant : chaque numéro lu dans un titre
+#     est croisé avec le catalogue, et le nom officiel anglais doit correspondre
+#     au titre français. Un titre dont plusieurs numéros existent au catalogue
+#     n'entre pas ici sans décision explicite.
 
 real:
   - title: "LEGO Star Wars 75447 - Le Razor Crest"
@@ -141,6 +146,48 @@ real:
     merchant: "Rakuten"
     set_num: "10281-1"
 
+  # Relevé du 29 juillet 2026, étiquettes proposées puis vérifiées contre le
+  # catalogue (le nom officiel anglais doit correspondre au titre français) :
+  # Champimeuhs/Mooshroom, Manoir Hanté/Haunted Mansion, etc. À relire.
+  - title: "Jouet Lego Centre de Table de Noël 40743"
+    merchant: "Amazon"
+    set_num: "40743-1"
+  - title: "Lego Icons 10329 - Les Plantes Miniatures"
+    merchant: "Lidl"
+    set_num: "10329-1"
+  - title: "Lego Technic Fast and Furious 42231 : Dodge Charger R/T"
+    merchant: "JoyBuy"
+    set_num: "42231-1"
+  - title: "Lego Minecraft 21270 : La Maison des Champimeuhs - Inclut des Champignons et la Figurine de Steve (via 9.23€ de remise fidélié)"
+    merchant: "E.Leclerc"
+    set_num: "21270-1"
+  - title: "LEGO DC Comics 76331 - La Batmobile de Batman v Superman"
+    merchant: "Amazon"
+    set_num: "76331-1"
+  - title: "Jouet Lego Icons 11380 Le vélo de route (via coupon)"
+    merchant: "JoyBuy"
+    set_num: "11380-1"
+  - title: "[Précommande] LEGO Star Wars 75454 AT-AT des Vestiges de l’Empire avec INT-4"
+    merchant: "Alternate"
+    set_num: "75454-1"
+  - title: "LEGO Creator 31167 - Le Manoir Hanté"
+    merchant: "Rakuten"
+    set_num: "31167-1"
+  - title: "LEGO Creator 31163 3-en-1 Le chat joueur (Via 4,64€ sur la carte)"
+    merchant: "E.Leclerc"
+    set_num: "31163-1"
+  - title: "Lego Minecraft 21585 - La ferme à poulet (via 3.29€ de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "21585-1"
+  - title: "Lego Creator 31385 - Animaux Marins : Les Beaux Dauphins (via 8,98€ sur la carte de fidélité)"
+    merchant: "E.Leclerc"
+    set_num: "31385-1"
+  - title: "Lego Icons 10328 - Le Bouquet de Roses"
+    merchant: "Lidl"
+    set_num: "10328-1"
+  - title: "35% de réduction sur toute la boutique officielle Lego Rakuten - ex : Lego Marvel 76343 Le combat légendaire entre HulkBuster et Hulk"
+    merchant: "Rakuten"
+    set_num: "76343-1"
 spec_traps:
   # « LEGO Star Wars 2024 » : une année n'est pas un numéro de set.
   - title: "LEGO Star Wars 2024 - nouveautés de l'année"
