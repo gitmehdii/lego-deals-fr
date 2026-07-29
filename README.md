@@ -29,7 +29,7 @@ cp .env.example .env   # puis remplir
 uv run alembic upgrade head
 ```
 
-Crée les cinq tables dans le SQLite pointé par `DATABASE_URL`.
+Crée les six tables dans la base pointée par `DATABASE_URL`.
 
 ## Commandes
 
@@ -38,8 +38,6 @@ uv run python -m bricks.ingest --source dealabs
 uv run python -m bricks.catalog sync
 uv run python -m bricks.health
 ```
-
-En l'état, `health` affiche une page vide.
 
 ### Ingestion
 
@@ -139,6 +137,68 @@ bas prix historique.
 Les deux phases sont commitées séparément : si l'API Brickset tombe en cours de
 route, l'import de l'identité est déjà durable et le sync suivant reprend.
 
+### Santé
+
+```bash
+uv run python -m bricks.health
+```
+
+Dernier run par source, offres actives, taux de résolution sur les 100
+dernières offres, alertes sur 7 jours. **Sort en code 1** quand une source a
+l'air morte, pour qu'un cron le remarque sans que personne lise la page.
+
+Une source est déclarée morte après 3 runs vides ou 3 échecs consécutifs. Un
+avertissement part alors dans Discord, en rouge et sans vignette ni prix —
+impossible à confondre avec un deal — puis plus rien pendant 24 h, quelle que
+soit la durée de la panne. Répéter toutes les 15 minutes apprendrait à
+l'ignorer, ce qui est pire que le silence.
+
+## Architecture
+
+```
+                 Rebrickable ──┐
+                 Brickset ─────┤
+                 Dealabs ──────┤
+                               ▼
+                         sources/          récupère, ne persiste rien
+                               │
+                               ▼
+                         services/         orchestre + persiste
+                          │        │        (n'a jamais entendu parler de Discord)
+                          ▼        ▼
+                       core/      db/      logique pure   SQLAlchemy
+                          │
+                          ▼
+                       adapters/
+                       ├── cli/            ingest · catalog · health
+                       └── webhook/        embeds Discord, français
+```
+
+La règle qui tient l'ensemble : **`services/` n'importe jamais rien de
+`adapters/`**. C'est ce qui permettra d'ajouter un serveur MCP ou une API sans
+rien refactorer, et c'est aussi pourquoi le français ne vit que dans
+`adapters/webhook/`.
+
+## Déploiement
+
+Deux workflows planifiés, qui appellent le CLI et rien d'autre :
+
+| Workflow | Cadence | Commande |
+|---|---|---|
+| `ingest.yml` | toutes les 15 min | `ingest --source dealabs` |
+| `catalogue.yml` | lundi | `catalog sync --since-year 2015` |
+
+Secrets GitHub à renseigner : `DATABASE_URL`, `DISCORD_WEBHOOK_URL`,
+`DEALABS_RSS_URL`, `BRICKSET_API_KEY`.
+
+`DATABASE_URL` **doit** pointer sur Turso (`sqlite+libsql://…`) : le disque
+d'un runner est effacé entre deux exécutions, donc un SQLite sur fichier
+repartirait vide à chaque fois et `price_points` — la seule table que personne
+ne pourrait reconstruire — n'accumulerait jamais rien.
+
+Aucune ligne de `src/` ne sait qu'elle tourne dans GitHub Actions. Passer sur
+un VPS, c'est changer le déclencheur.
+
 ## Développement
 
 ```bash
@@ -160,4 +220,4 @@ les trois fait échouer la suite.
 | 3 | Ingestion Dealabs | fait |
 | 4 | Résolution | fait (jeu de test à 39/50) |
 | 5 | Détection et alertes | fait (envoi réel non vérifié) |
-| 6 | Observabilité et déploiement | à faire |
+| 6 | Observabilité et déploiement | health + alerte de santé + workflows faits ; Turso à brancher |
