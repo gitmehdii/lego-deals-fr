@@ -106,6 +106,13 @@ nouvelle alerte si le prix n'a pas baissé d'au moins 5 % depuis la dernière, e
 10 alertes maximum par run. Atteindre le plafond est journalisé bruyamment,
 parce que c'est plus souvent un bug qu'un vendredi noir.
 
+Si Discord refuse un message, le run **ne tombe pas** : les offres et les
+price points sont déjà acquis. L'envoi s'arrête là — le plafond est à 10 et
+Discord accepte 5 messages par 2 secondes, donc un refus est très
+probablement une limite de débit, et insister est exactement ce qu'elle
+demande de ne pas faire. Rien n'est perdu : une alerte sans ligne dans
+`alerts` est une alerte que le run suivant repropose.
+
 `--dry-run` affiche les embeds en console sans toucher ni à Discord ni à la
 table `alerts`. Sans `DISCORD_WEBHOOK_URL`, le run prend le même chemin avec un
 avertissement : les offres et les price points valent déjà le coup.

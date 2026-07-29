@@ -22,7 +22,7 @@ from bricks.core.detect import (
     rank_for_sending,
 )
 from bricks.db.models import Alert, Offer, PricePoint, Set
-from bricks.log import get_logger
+from bricks.log import get_logger, redact_secrets
 
 _log = get_logger(__name__)
 
@@ -54,6 +54,9 @@ class AlertsReport(BaseModel):
     sent: int = 0
     suppressed: int = 0
     capped: bool = False
+    # Qualified, then Discord would not take them. They carry no `alerts` row,
+    # so the next run offers them again.
+    undelivered: int = 0
 
 
 def detect_and_alert(
@@ -107,8 +110,9 @@ def detect_and_alert(
             "alert_cap_reached", qualifying=len(ranked), cap=MAX_ALERTS_PER_RUN
         )
 
+    to_send = ranked[:MAX_ALERTS_PER_RUN]
     payloads: list[AlertPayload] = []
-    for candidate, decision in ranked[:MAX_ALERTS_PER_RUN]:
+    for candidate, decision in to_send:
         offer, lego_set = by_offer[candidate.offer_id]
         payload = _build_payload(
             candidate, decision, offer, lego_set, history_by_offer[candidate.offer_id]
@@ -117,7 +121,26 @@ def detect_and_alert(
 
         if send is None:
             continue
-        send(payload)
+        try:
+            send(payload)
+        except Exception as exc:
+            # Discord refusing is not the ingestion failing. The offers and the
+            # price points are already durable and worth the run, so this is
+            # reported rather than raised.
+            #
+            # We stop instead of trying the rest: the likeliest reason to be
+            # here is a rate limit — the cap is 10 a run and Discord takes 5
+            # every 2 seconds — and pushing through is precisely what it asks
+            # us not to do. Nothing is lost, because an alert with no row is an
+            # alert the next run offers again.
+            report.undelivered = len(to_send) - report.sent
+            _log.error(
+                "alert_send_failed",
+                offer_id=payload.offer_id,
+                undelivered=report.undelivered,
+                error=redact_secrets(exc),
+            )
+            break
         # Written only after a successful send: the table means "messages we
         # actually delivered", and the anti-spam rules read it as such.
         session.add(

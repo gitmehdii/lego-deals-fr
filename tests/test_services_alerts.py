@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from bricks.db.models import Alert, Offer, PricePoint, Set
 from bricks.services.alerts import detect_and_alert
+from bricks.sources.http import SourceUnavailableError
 
 NOW = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
 CHANNEL = "test-channel"
@@ -246,11 +247,55 @@ def test_a_failed_send_writes_no_alert_row(session):
     def explode(payload):
         raise RuntimeError("discord is down")
 
-    with pytest.raises(RuntimeError):
-        _run(session, send=explode)
+    report, _ = _run(session, send=explode)
 
     session.rollback()
     assert session.scalar(select(func.count()).select_from(Alert)) == 0
+    assert (report.sent, report.undelivered) == (0, 1)
+
+
+def test_a_failed_send_does_not_take_the_run_down(session):
+    """Ingestion succeeded; Discord being unreachable does not undo that.
+
+    The offers and price points are already durable, and an alert with no row
+    is one the next run offers again, so this is reported, not raised.
+    """
+    lego_set = _set(session)
+    _offer(session, lego_set, price=69.99)
+    session.commit()
+
+    def explode(payload):
+        raise SourceUnavailableError("rate limited by discord, abandoning the run")
+
+    report, _ = _run(session, send=explode)
+    assert report.considered == 1
+    assert report.undelivered == 1
+
+
+def test_a_refusal_stops_the_batch_rather_than_pushing_through(session):
+    """A rate limit is the likeliest reason to be here, and it asks us to stop.
+
+    Whatever goes unsent keeps no `alerts` row, so the anti-spam rules do not
+    suppress it and the next run offers it again.
+    """
+    lego_set = _set(session)
+    for index in range(6):
+        _offer(session, lego_set, price=69.99 - index, external_id=f"deal-{index}")
+    session.commit()
+
+    attempts: list[int] = []
+
+    def discord_rate_limits_after_two(payload):
+        attempts.append(payload.offer_id)
+        if len(attempts) > 2:
+            raise SourceUnavailableError("rate limited by discord")
+
+    report, _ = _run(session, send=discord_rate_limits_after_two)
+
+    assert len(attempts) == 3, "stopped at the first refusal, not after trying all six"
+    assert report.sent == 2
+    assert report.undelivered == 4
+    assert session.scalar(select(func.count()).select_from(Alert)) == 2
 
 
 def test_the_payload_carries_what_the_message_needs(session):

@@ -174,6 +174,11 @@ def _render(
         f"Alerts suppressed          {alerts.suppressed}",
         f"Alerts sent                {alerts.sent}",
     ]
+    if alerts.undelivered:
+        lines.append(
+            f"Alerts undelivered         {alerts.undelivered}"
+            "  (Discord refused; the next run offers them again)"
+        )
     if alerts.capped:
         lines.append("Run hit the alert cap; check for a detection bug.")
 
