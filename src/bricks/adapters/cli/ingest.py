@@ -5,12 +5,18 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from bricks.adapters.cli.common import configure, load_settings
-from bricks.adapters.webhook.discord import DiscordWebhook, render_console
+from bricks.adapters.webhook.discord import (
+    DiscordHealthWebhook,
+    DiscordWebhook,
+    render_console,
+    render_health_console,
+)
 from bricks.config import Settings
 from bricks.db.models import Run
 from bricks.db.session import create_db_engine, create_session_factory
 from bricks.log import get_logger, redact_secrets
 from bricks.services.alerts import AlertsReport, detect_and_alert
+from bricks.services.health import HealthWarning, warn_about_dead_sources
 from bricks.services.ingest import IngestReport, ingest
 from bricks.sources.http import HttpFetcher
 from bricks.sources.registry import SOURCE_NAMES, build_source
@@ -47,6 +53,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     session_factory = create_session_factory(create_db_engine(settings))
     with HttpFetcher() as fetcher, session_factory() as session:
+        failure: Exception | None = None
+        report = alerts = previews = None
         try:
             report = ingest(
                 session,
@@ -64,12 +72,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             # The run row is already written by the service, with the reason.
             # Nothing is re-logged here beyond the exit path.
             log.error("ingest_aborted", source=args.source, error=redact_secrets(exc))
+            failure = exc
+
+        # Deliberately outside the try: a run that just failed is precisely
+        # when a source needs checking, and the run row is already committed,
+        # so this run's own outcome counts towards the streak.
+        warnings = _warn_or_log(session, fetcher, settings, args.dry_run, log)
+
+        if failure is not None:
+            _print_warnings(warnings)
             return 1
 
         if not args.dry_run:
             _record_alerts_sent(session, report.run_id, alerts.sent)
 
-    print(_render(report, alerts, previews, dry_run=args.dry_run))
+    print(_render(report, alerts, previews, warnings, dry_run=args.dry_run))
     return 0
 
 
@@ -90,13 +107,55 @@ def _sender(fetcher: HttpFetcher, settings: Settings, *, dry_run: bool) -> objec
     return webhook.send
 
 
+def _warn_or_log(
+    session: Session,
+    fetcher: HttpFetcher,
+    settings: Settings,
+    dry_run: bool,
+    log: object,
+) -> list[HealthWarning]:
+    """The health check must never be what takes the run down.
+
+    It runs after a failure as well as after a success, so a webhook that is
+    itself unreachable would otherwise turn one problem into two.
+    """
+    try:
+        return warn_about_dead_sources(
+            session, send=_health_sender(fetcher, settings, dry_run=dry_run)
+        )
+    except Exception as exc:
+        get_logger(__name__).error("health_warning_failed", error=redact_secrets(exc))
+        return []
+
+
+def _print_warnings(warnings: list[HealthWarning]) -> None:
+    for warning in warnings:
+        print(render_health_console(warning))
+
+
+def _health_sender(
+    fetcher: HttpFetcher, settings: Settings, *, dry_run: bool
+) -> object:
+    if dry_run or settings.discord_webhook_url is None:
+        return None
+    webhook = DiscordHealthWebhook(
+        fetcher, webhook_url=settings.discord_webhook_url.get_secret_value()
+    )
+    return webhook.send
+
+
 def _record_alerts_sent(session: Session, run_id: int, sent: int) -> None:
     session.execute(update(Run).where(Run.id == run_id).values(alerts_sent=sent))
     session.commit()
 
 
 def _render(
-    report: IngestReport, alerts: AlertsReport, previews: list, *, dry_run: bool
+    report: IngestReport,
+    alerts: AlertsReport,
+    previews: list,
+    warnings: list[HealthWarning],
+    *,
+    dry_run: bool,
 ) -> str:
     lines = [
         f"ingest: {report.source}",
@@ -117,6 +176,9 @@ def _render(
     ]
     if alerts.capped:
         lines.append("Run hit the alert cap; check for a detection bug.")
+
+    for warning in warnings:
+        lines += ["", render_health_console(warning)]
 
     if dry_run:
         lines += ["", f"--dry-run: {len(previews)} alert(s) would be sent", ""]
