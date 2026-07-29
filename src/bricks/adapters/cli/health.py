@@ -127,7 +127,14 @@ def _resolution(report: HealthReport) -> str:
 
 
 def _with_rrp(report: HealthReport) -> str:
+    """Deliberately not a percentage of the whole catalogue.
+
+    That number reads as 13 % and looks like a broken sync, when in fact the
+    catalogue is a faithful mirror of Rebrickable: most of it is gear, books
+    and polybags LEGO never listed a price for, and `catalog sync` only covers
+    the years it was asked for. A count against the total says the same thing
+    without inviting the wrong conclusion.
+    """
     if not report.catalogue_sets:
         return "0  (run: catalog sync)"
-    share = report.catalogue_with_rrp / report.catalogue_sets
-    return f"{report.catalogue_with_rrp}  ({share:.0%})"
+    return f"{report.catalogue_with_rrp} of {report.catalogue_sets}"
