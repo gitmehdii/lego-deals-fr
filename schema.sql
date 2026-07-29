@@ -4,14 +4,15 @@
 -- Target: SQLite (local dev) and libSQL / Turso (production).
 -- Reference document, kept in sync with the Alembic migrations by hand.
 --
--- Five tables. If this ever grows past eight, something went wrong in the
+-- Six tables. If this ever grows past eight, something went wrong in the
 -- design. Each table is described in one sentence below.
 --
---   sets          The LEGO catalogue. Reference data, no current prices.
---   offers        A set on sale somewhere, right now.
---   price_points  Every price we have ever observed. Append-only.
---   alerts        Every Discord message we have actually sent.
---   runs          Every pipeline execution, successful or not.
+--   sets           The LEGO catalogue. Reference data, no current prices.
+--   offers         A set on sale somewhere, right now.
+--   price_points   Every price we have ever observed. Append-only.
+--   alerts         Every deal message we have actually sent.
+--   health_alerts  Every "the pipeline looks dead" warning we have sent.
+--   runs           Every pipeline execution, successful or not.
 --
 -- Conventions:
 --   - All timestamps are UTC, stored as ISO 8601 text.
@@ -164,6 +165,32 @@ CREATE TABLE alerts (
 );
 
 CREATE INDEX idx_alerts_offer ON alerts (offer_id, sent_at);
+
+
+-- -----------------------------------------------------------------------------
+-- health_alerts: warnings sent because a source stopped producing.
+--
+-- Kept apart from `alerts` rather than sharing it: an alert is about an offer
+-- and its offer_id is NOT NULL, whereas this is about a source that has gone
+-- quiet and refers to no offer at all. Forcing them into one table would mean
+-- a nullable foreign key and a reason column meaning two different things.
+--
+-- Exists for one purpose: the "no more than one warning per 24h" rule needs
+-- to remember when the last one went out.
+-- -----------------------------------------------------------------------------
+CREATE TABLE health_alerts (
+    id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+
+    -- Which source went quiet, e.g. 'dealabs'.
+    source      TEXT NOT NULL,
+
+    -- 'no_items' | 'failing'
+    reason      TEXT NOT NULL,
+
+    sent_at     TEXT NOT NULL
+);
+
+CREATE INDEX idx_health_alerts_source ON health_alerts (source, sent_at);
 
 
 -- -----------------------------------------------------------------------------

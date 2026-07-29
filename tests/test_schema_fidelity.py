@@ -9,7 +9,14 @@ what SQLite actually stored, not on how the DDL happened to be written.
 import pytest
 from sqlalchemy import Engine, inspect
 
-EXPECTED_TABLES = {"sets", "offers", "price_points", "alerts", "runs"}
+EXPECTED_TABLES = {
+    "sets",
+    "offers",
+    "price_points",
+    "alerts",
+    "health_alerts",
+    "runs",
+}
 
 
 def _normalize_default(value: object) -> str | None:

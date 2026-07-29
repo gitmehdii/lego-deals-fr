@@ -17,6 +17,7 @@ from bricks.db.base import Base
 # SQLAlchemy turns a Literal into an Enum and emits VARCHAR(n).
 ResolutionMethod = Literal["set_number", "fuzzy_name", "manual"]
 AlertReason = Literal["discount_threshold", "all_time_low"]
+HealthAlertReason = Literal["no_items", "failing"]
 RunStatus = Literal["running", "ok", "error"]
 
 
@@ -113,6 +114,25 @@ class Alert(Base):
     sent_at: Mapped[datetime]
 
     offer: Mapped["Offer"] = relationship(back_populates="alerts", lazy="raise")
+
+
+class HealthAlert(Base):
+    """A "this source has gone quiet" warning actually sent.
+
+    Separate from Alert because it refers to no offer at all. Exists so the
+    "one warning per 24h at most" rule has something to read.
+    """
+
+    __tablename__ = "health_alerts"
+    __table_args__ = (
+        Index("idx_health_alerts_source", "source", "sent_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    source: Mapped[str]
+    reason: Mapped[HealthAlertReason] = mapped_column(Text)
+    sent_at: Mapped[datetime]
 
 
 class Run(Base):
