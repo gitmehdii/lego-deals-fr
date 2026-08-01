@@ -200,3 +200,50 @@ def test_fuzzy_matching_is_the_fallback_not_the_first_choice(small_index):
 def test_a_title_too_short_to_judge_is_left_alone(small_index):
     """Short strings are exactly where fuzzy matching invents things."""
     assert resolve("LEGO", small_index).method is None
+
+
+@pytest.fixture
+def near_twins() -> SetIndex:
+    """Two catalogue names a hair apart, taken from the real catalogue.
+
+    10328 "Bouquet of Roses" and 10374 "Bouquet of Pink Roses" both exist, and
+    a title naming one of them describes the other almost as well.
+    """
+    return SetIndex(
+        [
+            CatalogueEntry("10328-1", "bouquet of roses"),
+            CatalogueEntry("10374-1", "bouquet of pink roses"),
+            CatalogueEntry("10497-1", "galaxy explorer"),
+        ]
+    )
+
+
+def test_two_near_identical_names_resolve_to_neither(near_twins):
+    """Measured on the real catalogue: this title put the wrong set on top at
+    0.86 with the right one behind at 0.81. Five hundredths apart is not a
+    decision, and announcing the wrong set is the one outcome to avoid."""
+    result = resolve("Lego Icons - Le Bouquet de Roses", near_twins)
+
+    assert result.method == "fuzzy_name", "the verdict is still recorded"
+    assert not result.accepted(THRESHOLD)
+
+
+def test_a_decisive_fuzzy_winner_is_still_accepted(near_twins):
+    """The guard rejects ties, it does not disable strategy two."""
+    result = resolve("Jouet Lego Galaxy Explorer", near_twins)
+
+    assert result.method == "fuzzy_name"
+    assert result.set_num == "10497-1"
+    assert result.accepted(THRESHOLD)
+
+
+def test_the_threshold_alone_already_refuses_a_loose_match(near_twins):
+    """Adding the theme word costs "galaxy explorer" 0.83, under the 0.85 bar.
+
+    Worth pinning: it is why strategy two stays as quiet as SPEC.md says it
+    should, and it is the reason the guard above has so little left to catch.
+    """
+    result = resolve("Lego Icons - Galaxy Explorer", near_twins)
+
+    assert result.set_num == "10497-1"
+    assert not result.accepted(THRESHOLD)

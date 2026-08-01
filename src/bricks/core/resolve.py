@@ -46,6 +46,17 @@ _YEAR_LIKE = range(1990, 2036)
 # nothing to work with, and short strings are exactly where it invents things.
 _MIN_FUZZY_TOKENS = 2
 
+# How far the best name has to beat the second best to mean anything. A fuzzy
+# score is only a number about one string; the distance to the runner-up is
+# what says the catalogue can tell them apart at all.
+#
+# Measured against the real 27 810-set catalogue, on real titles with their
+# number removed: "Le Bouquet de Roses" put `bouquet pink roses` at 0.86 and
+# the correct `bouquet roses` at 0.81 — 0.05 apart, and the wrong one on top.
+# "Transformers : Soundwave" won its by 0.22. The sample is thin, so the value
+# is deliberately loose: it exists to reject ties, not to tune accuracy.
+_DECISIVE_MARGIN = 0.10
+
 
 @dataclass(frozen=True)
 class CatalogueEntry:
@@ -97,14 +108,20 @@ class SetIndex:
     def name_of(self, set_num: str) -> str:
         return self._names.get(set_num, "")
 
-    def best_name_match(self, title: str) -> tuple[str, float] | None:
+    def best_name_match(self, title: str) -> tuple[str, float, float] | None:
+        """Best catalogue name for this title, its score, and the runner-up's.
+
+        The runner-up is returned rather than discarded because the gap between
+        the two is what says whether the winner means anything.
+        """
         if not self._keys:
             return None
-        match = process.extractOne(title, self._keys, scorer=fuzz.token_sort_ratio)
-        if match is None:
+        top = process.extract(title, self._keys, scorer=fuzz.token_sort_ratio, limit=2)
+        if not top:
             return None
-        _, score, position = match
-        return self._set_nums[position], score / 100.0
+        _, score, position = top[0]
+        runner_up = top[1][1] / 100.0 if len(top) > 1 else 0.0
+        return self._set_nums[position], score / 100.0, runner_up
 
 
 def resolve(title: str, index: SetIndex, *, merchant: str | None = None) -> Resolution:
@@ -153,7 +170,12 @@ def _resolve_by_name(title: str, index: SetIndex, merchant: str | None) -> Resol
     if best is None:
         return UNRESOLVED
 
-    set_num, score = best
+    set_num, score, runner_up = best
+    if score - runner_up < _DECISIVE_MARGIN:
+        # Two catalogue names this close are two answers, not one, and the same
+        # rule already governs strategy 1. Recorded so the case shows up in the
+        # data, scored to be rejected.
+        return Resolution(set_num=set_num, score=_AMBIGUOUS_SCORE, method="fuzzy_name")
     return Resolution(set_num=set_num, score=score, method="fuzzy_name")
 
 
