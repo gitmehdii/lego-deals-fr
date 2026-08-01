@@ -1,11 +1,12 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
 
 from bricks.adapters.cli.common import load_settings
 from bricks.db.base import Base
 from bricks.db.models import Alert, Offer, PricePoint, Run, Set  # noqa: F401
+from bricks.db.session import engine_for_url
 
 config = context.config
 
@@ -46,11 +47,9 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = _database_url()
-    connectable = engine_from_config(
-        section, prefix="sqlalchemy.", poolclass=pool.NullPool
-    )
+    # Built through engine_for_url rather than engine_from_config so that a
+    # Turso URL reaches the driver the same way here as everywhere else.
+    connectable = engine_for_url(_database_url(), poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
