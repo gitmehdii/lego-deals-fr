@@ -137,6 +137,53 @@ ACCEPTED_DATABASE_URLS = [
 ]
 
 
+@pytest.mark.parametrize(
+    ("variable", "attribute", "expected"),
+    [
+        # The default has to survive: a workflow whose DEALABS_RSS_URL secret
+        # does not exist used to fetch an empty URL and take the run down.
+        (
+            "DEALABS_RSS_URL",
+            "dealabs_rss_url",
+            "https://www.dealabs.com/rss/groupe/lego",
+        ),
+        ("DATABASE_URL", "database_url", "sqlite:///local.db"),
+        ("LOG_LEVEL", "log_level", "INFO"),
+        ("MIN_DISCOUNT_PCT", "min_discount_pct", 25.0),
+        # Optional credentials come back as absent, not as an empty secret.
+        ("BRICKSET_API_KEY", "brickset_api_key", None),
+        ("DISCORD_WEBHOOK_URL", "discord_webhook_url", None),
+    ],
+)
+def test_a_variable_set_to_nothing_is_a_variable_nobody_set(
+    monkeypatch, variable, attribute, expected
+):
+    """GitHub Actions injects "" for every secret that does not exist, and
+    .env.example ships its optional keys empty for you to fill in."""
+    monkeypatch.setenv(variable, "")
+    get_settings.cache_clear()
+    assert getattr(Settings(), attribute) == expected
+
+
+def test_the_env_example_starts_a_working_run(tmp_path, monkeypatch):
+    """`cp .env.example .env` is step one of the README, and it used to fail
+    on DISCORD_WEBHOOK_URL before anything could run."""
+    from pathlib import Path
+
+    example = Path(__file__).parent.parent / ".env.example"
+    env = tmp_path / ".env"
+    env.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+
+    for variable in ("DATABASE_URL", "BRICKSET_API_KEY", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(variable, raising=False)
+    get_settings.cache_clear()
+
+    config = Settings(_env_file=str(env))
+    assert config.brickset_api_key is None
+    assert config.discord_webhook_url is None
+    assert config.database_url == "sqlite:///local.db"
+
+
 def test_a_turso_url_can_actually_be_opened():
     """CLAUDE.md and .env.example both advertise sqlite+libsql:// for
     production, and the GitHub runner's disk is wiped between runs, so an

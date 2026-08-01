@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic import SecretStr as SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
@@ -63,6 +63,23 @@ class Settings(BaseSettings):
     min_resolution_score: float = Field(default=0.85, ge=0.0, le=1.0)
 
     log_level: LogLevel = "INFO"
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object, info: ValidationInfo) -> object:
+        """A variable set to nothing is a variable nobody set.
+
+        Two places produce a blank rather than an absent value, and both are
+        the documented first step: `.env.example` ships its optional keys empty
+        for you to fill in, and GitHub Actions injects "" for every secret that
+        does not exist. Without this, `cp .env.example .env` fails on
+        DISCORD_WEBHOOK_URL, and a workflow missing DEALABS_RSS_URL overrides
+        the feed with an empty string instead of falling back to the default.
+        """
+        if not isinstance(value, str) or value.strip():
+            return value
+        field = cls.model_fields.get(info.field_name) if info.field_name else None
+        return field.default if field is not None else None
 
     @field_validator("log_level", mode="before")
     @classmethod
