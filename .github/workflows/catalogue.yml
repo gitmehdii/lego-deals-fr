@@ -1,0 +1,51 @@
+name: catalogue
+
+# Kept apart from ingest.yml rather than folded in behind a condition: two
+# schedules in one file means every job needs an `if` comparing cron strings,
+# and a workflow you have to decode is a workflow nobody edits confidently.
+
+on:
+  schedule:
+    # Mondays, early. Set identities barely move, and the Brickset half costs
+    # roughly 110 requests, so daily would be rude for no benefit.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: catalogue
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Measured against a real Turso database: a weekly sync with nothing to
+    # change takes 1 min 20 s, but seeding an empty one takes about 21 — the
+    # 5 747 retail prices go over one round trip each, and 20 minutes was not
+    # enough by ten seconds. The identity import is already batched (see
+    # db/bulk.py); the price phase cannot use the same trick, because its rows
+    # carry only three columns and SQLite checks NOT NULL before it resolves
+    # the conflict, so an upsert fails on sets.name.
+    #
+    # Sized for the cold start rather than the common case, so that a database
+    # recreated from scratch can still be seeded by the workflow itself.
+    timeout-minutes: 45
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BRICKSET_API_KEY: ${{ secrets.BRICKSET_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --locked
+
+      - run: uv run alembic upgrade head
+
+      # 2015 onwards: older sets are out of production, so their RRP is a
+      # historical curiosity rather than something a discount is measured
+      # against. Drops the sync to roughly 30 requests.
+      - run: uv run python -m bricks.catalog sync --since-year 2015

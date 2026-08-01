@@ -1,0 +1,45 @@
+name: ingest
+
+# This file calls the CLI and does nothing else. No step reads a GITHUB_*
+# variable, no step emits ::notice::, and nothing under src/ knows this file
+# exists. Moving to a VPS means changing the trigger and nothing more.
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub queues rather than guarantees this, and stops
+    # scheduled workflows altogether in a repository nobody has touched for 60
+    # days — which is why the pipeline warns about its own silence in Discord
+    # rather than trusting this line.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+# DATABASE_URL must point at Turso. A runner's disk is wiped between runs, so
+# an on-disk SQLite would start empty every time and price_points — the one
+# table nobody could rebuild — would never accumulate.
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      DEALABS_RSS_URL: ${{ secrets.DEALABS_RSS_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --locked
+
+      # Safe every time: Alembic stops at the first revision already applied.
+      - run: uv run alembic upgrade head
+
+      - run: uv run python -m bricks.ingest --source dealabs

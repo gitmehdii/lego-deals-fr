@@ -86,13 +86,27 @@ class Source(Protocol):
 
 ### Source v1 : Dealabs
 
-Lecture d'un flux RSS d'alerte Dealabs configuré sur le mot-clé « lego ».
-L'URL du flux est en configuration, elle n'est jamais en dur.
+Lecture du flux RSS que Dealabs publie sur son groupe LEGO. L'URL est en
+configuration, elle n'est jamais en dur, et un flux d'alerte personnel
+configuré sur le mot-clé « lego » s'y substitue sans toucher au code.
 
-Le flux ne donne pas toujours un prix propre. Le prix est extrait du titre par
-expression régulière, en gérant les formats `79,99€`, `79.99 €`, `79€99`. Si
-aucun prix n'est extractible, `price_eur` reste à None et l'offre est ignorée
-pour la détection, mais conservée en base.
+Le flux porte une extension propre à la plateforme Pepper :
+
+```xml
+<pepper:merchant name="Alternate" price="158,90€"/>
+```
+
+**C'est la source primaire du prix et du marchand.** Observée présente sur
+l'intégralité des entrées d'un flux réel, elle est structurée, donc plus fiable
+que n'importe quelle lecture du titre. Une version antérieure de ce document
+prescrivait d'extraire le prix du titre par expression régulière ; c'était
+écrit avant d'avoir regardé le flux.
+
+L'extraction depuis le titre reste implémentée, en **secours** : elle sert
+quand l'attribut est absent ou illisible, et elle gère les formats `79,99€`,
+`79.99 €` et `79€99`. Si aucun prix n'est obtenu par l'une ou l'autre voie,
+`price_eur` reste à None et l'offre est ignorée pour la détection, mais
+conservée en base.
 
 ### Sources futures
 
@@ -133,8 +147,32 @@ retirés, ponctuation retirée, mots vides du domaine retirés : « lego », « 
 « jeu de construction », « à », « au lieu de », le prix, le nom du marchand).
 
 On compare ensuite au champ `name_normalized` de la table `sets` avec
-`rapidfuzz`, en `token_set_ratio`. Le meilleur score, ramené entre 0 et 1,
+`rapidfuzz`, en **`token_sort_ratio`**. Le meilleur score, ramené entre 0 et 1,
 devient le score de résolution, méthode `fuzzy_name`.
+
+> **Correction.** Une version antérieure prescrivait `token_set_ratio`. C'est
+> faux, et d'une façon qui produit exactement les faux positifs que le lot 4
+> interdit : ce scorer renvoie **100 dès que les mots d'un nom du catalogue
+> sont inclus dans le titre**. Mesuré sur le catalogue réel de 27 810 sets,
+> après normalisation du titre :
+>
+> | Titre | `token_set_ratio` | `token_sort_ratio` |
+> |---|---|---|
+> | `Lego Harry Potter … sur PS5` (un jeu vidéo) | **100** → `71022-1` | 67.6 |
+> | `Sélection de trois Botanicals…` (un lot) | **100** → « rose » | 58.8 |
+> | `LEGO Star Wars 75447 - Le Razor Crest` | **100** → `75292-1`, le Razor Crest **de 2019** | 66.7 |
+>
+> Quatre faux positifs sur cinq sondes, tous au score maximum. Ce n'est pas un
+> problème de réglage : `token_set_ratio` ignore par construction ce que le
+> titre contient en plus. `token_sort_ratio` tient compte de la longueur et
+> reste sous le seuil dans tous ces cas.
+
+**Conséquence assumée : la stratégie 2 se déclenche rarement.** Les titres
+Dealabs sont en français, les noms Rebrickable en anglais, et aucune mesure de
+similarité ne franchit honnêtement cet écart. C'est la stratégie 1 qui fait le
+travail — 97 % des titres réels observés portent leur numéro de set. La
+stratégie 2 n'existe que pour les cas où le titre partage des noms propres avec
+le catalogue, et son silence est un comportement correct, pas une panne.
 
 ### Seuil
 

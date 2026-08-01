@@ -1,11 +1,12 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
 
-from bricks.config import get_settings
+from bricks.adapters.cli.common import load_settings
 from bricks.db.base import Base
 from bricks.db.models import Alert, Offer, PricePoint, Run, Set  # noqa: F401
+from bricks.db.session import engine_for_url
 
 config = context.config
 
@@ -20,7 +21,18 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    return config.get_main_option("sqlalchemy.url") or get_settings().database_url
+    """The same clean report as the CLI, not a traceback.
+
+    `alembic upgrade head` runs before every command in the workflows, so it
+    is the first thing to meet a freshly pasted DATABASE_URL and the first
+    place a wrong one shows up.
+    """
+    if configured := config.get_main_option("sqlalchemy.url"):
+        return configured
+    settings = load_settings()
+    if settings is None:
+        raise SystemExit(2)
+    return settings.database_url
 
 
 def run_migrations_offline() -> None:
@@ -35,11 +47,9 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = _database_url()
-    connectable = engine_from_config(
-        section, prefix="sqlalchemy.", poolclass=pool.NullPool
-    )
+    # Built through engine_for_url rather than engine_from_config so that a
+    # Turso URL reaches the driver the same way here as everywhere else.
+    connectable = engine_for_url(_database_url(), poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,

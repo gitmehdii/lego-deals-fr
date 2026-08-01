@@ -57,8 +57,8 @@ Faire entrer des offres dans la base. Pas encore de résolution, pas d'alerte.
 **Contenu**
 
 - Protocole `Source` et modèle `RawOffer`
-- Implémentation `DealabsSource` : lecture RSS, extraction du prix et du
-  marchand depuis le titre
+- Implémentation `DealabsSource` : lecture RSS, prix et marchand lus dans
+  `pepper:merchant`, extraction depuis le titre en secours
 - Déduplication sur `(source, external_id)`
 - Création d'un `PricePoint` à chaque observation, y compris quand le prix
   n'a pas bougé

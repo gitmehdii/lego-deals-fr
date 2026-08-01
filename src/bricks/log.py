@@ -34,6 +34,12 @@ _SENSITIVE_PARAM = re.compile(
 # bare email address in an exception message is left alone.
 _URL_USERINFO = re.compile(r"(://[^/?#\s:@]+):[^/?#\s@]*@")
 
+# A Discord webhook carries its credential in the *path*, not in a query
+# parameter or userinfo: https://discord.com/api/webhooks/<id>/<token>.
+# Anyone holding that URL can post to the channel, so it is a secret, and
+# neither pattern above would touch it.
+_WEBHOOK_PATH = re.compile(r"(/api/webhooks/)[^/\s\"'>)\]]+/[^/\s\"'>)\]]+")
+
 
 def redact_secrets(value: object) -> str:
     """Strip credentials out of arbitrary text. Total function: never raises.
@@ -50,6 +56,7 @@ def redact_secrets(value: object) -> str:
     try:
         text = value if isinstance(value, str) else str(value)
         text = _SENSITIVE_PARAM.sub(rf"\1\2={REDACTED}", text)
+        text = _WEBHOOK_PATH.sub(rf"\1{REDACTED}", text)
         return _URL_USERINFO.sub(rf"\1:{REDACTED}@", text)
     except Exception:
         return REDACTION_FAILED
@@ -85,8 +92,17 @@ def _redact_processor(
         return {"event": REDACTION_FAILED}
 
 
+# httpx logs one plain-text line per request, at INFO, containing the full
+# URL. Two problems at once: it is not JSON, and it never passes through the
+# redaction processor below, so a credential carried in a query string would
+# be printed verbatim. Our own sources already log what they fetch.
+_NOISY_LIBRARIES = ("httpx", "httpcore")
+
+
 def configure_logging(level: LogLevel = "INFO") -> None:
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level)
+    for name in _NOISY_LIBRARIES:
+        logging.getLogger(name).setLevel(logging.WARNING)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

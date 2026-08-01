@@ -237,3 +237,19 @@ def test_processor_survives_a_self_referencing_value(capsys):
     output = capsys.readouterr().out
     assert output.strip(), "logging must still emit a record"
     assert "eyJhbGciOiJFZERTQSJ9" not in output
+
+
+def test_a_discord_webhook_url_is_redacted():
+    """The token sits in the path, so neither the query-parameter pattern nor
+    the userinfo one would touch it. Anyone holding this URL can post."""
+    url = "https://discord.com/api/webhooks/123456789/aBcDeF-token_value"
+    redacted = redact_secrets(f"POST {url} failed with 401")
+
+    assert "aBcDeF-token_value" not in redacted
+    assert "123456789" not in redacted
+    assert "/api/webhooks/" in redacted, "the shape stays readable in a log"
+
+
+def test_a_webhook_url_inside_an_exception_is_redacted():
+    url = "https://discord.com/api/webhooks/123456789/s3cret"
+    assert "s3cret" not in redact_secrets(RuntimeError(f"connect to {url}"))
