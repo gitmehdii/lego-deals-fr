@@ -220,6 +220,32 @@ def test_the_best_discounts_are_sent_first():
     assert [c.offer_id for c, _ in rank_for_sending(pairs)] == [2, 4, 1, 3]
 
 
+def test_a_record_low_without_a_rrp_is_not_what_the_cap_discards_first():
+    """Most of the catalogue has no RRP, so its record lows carry no discount.
+
+    Ranked on the discount alone they sorted as zero, behind every threshold
+    alert, and a set falling to its cheapest price ever was the first thing a
+    capped run threw away — the opposite of what _matching_criterion prefers.
+    """
+    pairs = [
+        (
+            Candidate(offer_id=1, price_eur=1, rrp_eur=None),
+            Decision(reason="discount_threshold", discount_pct=60.0),
+        ),
+        (
+            Candidate(offer_id=2, price_eur=1, rrp_eur=None),
+            Decision(reason="all_time_low", discount_pct=None),
+        ),
+        (
+            Candidate(offer_id=3, price_eur=1, rrp_eur=None),
+            Decision(reason="all_time_low", discount_pct=70.0),
+        ),
+    ]
+    ranked = [c.offer_id for c, _ in rank_for_sending(pairs)]
+
+    assert ranked == [3, 2, 1], "record lows lead, then the deepest discount"
+
+
 def test_the_run_cap_is_ten():
     """SPEC.md: hitting it is more often a bug than a black Friday."""
     assert MAX_ALERTS_PER_RUN == 10

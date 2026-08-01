@@ -125,11 +125,20 @@ def _suppression(candidate: Candidate, now: datetime) -> str | None:
 def rank_for_sending(
     decisions: list[tuple[Candidate, Decision]],
 ) -> list[tuple[Candidate, Decision]]:
-    """Best discounts first, so a capped run keeps the deals worth having."""
+    """Best deals first, so a capped run keeps the ones worth having.
+
+    An all-time low leads whatever its discount, for the same reason
+    `_matching_criterion` prefers it: it is the rarer fact. Ranking on the
+    discount alone quietly did the opposite — a set with no RRP has no
+    discount to be ranked by, so its record low sorted as zero and was the
+    first thing a capped run threw away. Most of the catalogue has no RRP,
+    and the cap is reached often enough for that to matter.
+    """
     return sorted(
         decisions,
         key=lambda pair: (
-            pair[1].discount_pct if pair[1].discount_pct is not None else 0
+            pair[1].reason == "all_time_low",
+            pair[1].discount_pct if pair[1].discount_pct is not None else 0,
         ),
         reverse=True,
     )
