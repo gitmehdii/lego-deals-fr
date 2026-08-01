@@ -60,10 +60,31 @@ def embed_colour(discount_pct: float | None) -> int:
     return _GREY
 
 
+def build_title(payload: AlertPayload) -> str:
+    """ "🧱  LEGO Icons 10497 Galaxy Explorer", per SPEC.md section 6.
+
+    The set number belongs here: identifying the product beyond doubt is the
+    whole point of the project, and the catalogue name alone ("Galaxy
+    Explorer") does not do it.
+    """
+    parts = ["LEGO", payload.theme, _display_number(payload.set_num), payload.set_name]
+    return "🧱  " + " ".join(part for part in parts if part)
+
+
+def _display_number(set_num: str) -> str:
+    """10497-1 -> "10497", the form a human uses.
+
+    A variant other than the first keeps its suffix, because there the suffix
+    is the whole difference. 2 506 of the 27 810 catalogue entries are one.
+    """
+    number, _, variant = set_num.partition("-")
+    return number if variant == "1" else set_num
+
+
 def build_embed(payload: AlertPayload) -> dict:
     """The message body, in the shape Discord's webhook API expects."""
     embed: dict = {
-        "title": f"🧱  {payload.set_name}",
+        "title": build_title(payload),
         "url": payload.url,
         "color": embed_colour(payload.discount_pct),
         "description": "\n".join(_description_lines(payload)),
@@ -111,10 +132,17 @@ def _fields(payload: AlertPayload) -> list[dict]:
 
 
 def render_console(payload: AlertPayload) -> str:
-    """What --dry-run prints. The same facts, without the markup."""
-    lines = [f"🧱  {payload.set_name}  [{payload.set_num}]", ""]
+    """What --dry-run prints: the same message, without the markup.
+
+    Shares build_title so the preview cannot drift from what actually gets
+    sent. It used to print the set number the embed left out, which made the
+    dry run show more than the run.
+    """
+    lines = [build_title(payload), ""]
     lines += [
-        "   " + line.replace("**", "").replace("~~", "")
+        # The separator lines are empty; indenting those would only emit
+        # trailing whitespace.
+        "   " + line.replace("**", "").replace("~~", "") if line else ""
         for line in _description_lines(payload)
     ]
     lines.append("")

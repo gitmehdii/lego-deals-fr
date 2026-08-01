@@ -142,16 +142,41 @@ def test_the_message_is_in_french():
     assert "Marchand" in text
 
 
+def test_the_title_names_the_set_the_way_the_spec_does():
+    """SPEC.md section 6: "🧱  LEGO Icons 10497 Galaxy Explorer"."""
+    assert build_embed(PAYLOAD)["title"] == "🧱  LEGO Icons 10497 Galaxy Explorer"
+
+
+def test_a_variant_other_than_the_first_keeps_its_suffix():
+    """10497-1 is "10497" to a human, but 10497-2 is only itself."""
+    payload = PAYLOAD.model_copy(update={"set_num": "10497-2"})
+    assert "10497-2" in build_embed(payload)["title"]
+
+
+def test_a_set_without_a_theme_still_gets_a_readable_title():
+    payload = PAYLOAD.model_copy(update={"theme": None})
+    assert build_embed(payload)["title"] == "🧱  LEGO 10497 Galaxy Explorer"
+
+
 # --- dry-run rendering -----------------------------------------------------
 
 
 def test_the_console_rendering_keeps_the_facts_and_drops_the_markup():
     rendered = render_console(PAYLOAD)
     assert "Galaxy Explorer" in rendered
-    assert "10497-1" in rendered
+    assert "10497" in rendered
     assert "69,99" in rendered
     assert "https://dealabs.test/deal" in rendered
     assert "**" not in rendered and "~~" not in rendered
+
+
+def test_the_dry_run_shows_the_title_that_would_be_sent():
+    """A preview that says more than the message is not a preview.
+
+    render_console used to print the set number while the embed title left it
+    out, so --dry-run was the only place it ever appeared.
+    """
+    assert render_console(PAYLOAD).splitlines()[0] == build_embed(PAYLOAD)["title"]
 
 
 # --- sending ---------------------------------------------------------------
