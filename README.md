@@ -113,6 +113,31 @@ probablement une limite de débit, et insister est exactement ce qu'elle
 demande de ne pas faire. Rien n'est perdu : une alerte sans ligne dans
 `alerts` est une alerte que le run suivant repropose.
 
+#### Point ouvert : les prix nets de cagnotte
+
+Sur un run réel, **9 alertes sur 10 sont des offres E.Leclerc « via X€ de
+fidélité »**, et le plafond de 10 est atteint. Ce n'est pas un bug de
+détection : c'est la sémantique du prix dans le flux.
+
+E.Leclerc fait des opérations « 25 % cagnottés », et le prix publié par
+Dealabs est **net de la cagnotte**, pas ce qu'on paie en caisse. En
+rajoutant le crédit lu dans le titre, on retombe sur des prix de rayon
+francs :
+
+| Prix du flux | + cagnotte | = caisse | RRP | remise annoncée | remise réelle |
+|---|---|---|---|---|---|
+| 9,86 € | 3,29 € | 13,15 € | 19,99 € | -51 % | **-34 %** |
+| 5,99 € | 2,00 € | 7,99 € | 9,99 € | -40 % | **-20 %** |
+| 32,92 € | 10,98 € | 43,90 € | 59,99 € | -45 % | **-27 %** |
+
+L'écart est d'environ 19 points. La cagnotte est réelle, mais elle ne se
+dépense que chez le même marchand plus tard, donc ce n'est pas le prix payé.
+CLAUDE.md exige une remise honnête et interdit le prix barré du marchand,
+« qui est du marketing » — un prix net de cagnotte pose exactement la même
+question, et elle n'est pas tranchée. **Décision produit, à prendre par
+Mehdi**, entre garder le prix du flux, retenir le prix caisse, ou afficher
+les deux.
+
 `--dry-run` affiche les embeds en console sans toucher ni à Discord ni à la
 table `alerts`. Sans `DISCORD_WEBHOOK_URL`, le run prend le même chemin avec un
 avertissement : les offres et les price points valent déjà le coup.
