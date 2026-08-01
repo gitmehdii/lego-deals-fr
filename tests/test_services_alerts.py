@@ -35,7 +35,7 @@ def _offer(session, lego_set, price=69.99, **kwargs):
         resolution_method="set_number",
         source="dealabs",
         external_id=kwargs.get("external_id", "1"),
-        merchant="Amazon",
+        merchant=kwargs.get("merchant", "Amazon"),
         title_raw="LEGO Icons 10497 Galaxy Explorer",
         url="https://dealabs.test/1",
         current_price_eur=price,
@@ -49,7 +49,11 @@ def _offer(session, lego_set, price=69.99, **kwargs):
 
 
 def _history(session, offer, prices, start=NOW):
-    """Oldest first. The newest observation is the one being judged."""
+    """Earlier runs, oldest first. Strictly before the observation being judged.
+
+    Use _observed_now for the current run's point: ingestion writes one for
+    every live offer, all sharing a single `now`.
+    """
     for index, price in enumerate(prices):
         session.add(
             PricePoint(
@@ -58,6 +62,13 @@ def _history(session, offer, prices, start=NOW):
                 observed_at=start - timedelta(days=len(prices) - index),
             )
         )
+    session.flush()
+
+
+def _observed_now(session, offer, price, at=NOW):
+    """The price point this run just wrote, the one detection must not judge
+    the offer against."""
+    session.add(PricePoint(offer_id=offer.id, price_eur=price, observed_at=at))
     session.flush()
 
 
@@ -176,6 +187,72 @@ def test_an_all_time_low_carries_the_record_it_beat(session):
     assert payload.reason == "all_time_low"
     assert payload.previous_low_eur == pytest.approx(70.0)
     assert payload.previous_low_at is not None
+
+
+def test_two_offers_for_one_set_do_not_hide_each_others_all_time_low(session):
+    """A whole run shares one timestamp, so "the set's newest point" is not
+    "this offer's own point".
+
+    Excluding the newest row overall left the other offer comparing its price
+    against itself, which is never strictly lower, so its all-time low
+    vanished. Fnac below is the cheapest this set has ever been.
+    """
+    lego_set = _set(session, rrp=None)
+    amazon = _offer(session, lego_set, price=95.0, external_id="amazon")
+    fnac = _offer(session, lego_set, price=40.0, external_id="fnac", merchant="Fnac")
+    _history(session, amazon, [90.0, 88.0, 85.0])
+    _history(session, fnac, [96.0, 95.5, 95.0])
+    # Written in offer order, exactly as ingestion does it.
+    _observed_now(session, amazon, 95.0)
+    _observed_now(session, fnac, 40.0)
+    session.commit()
+
+    _, payloads = _run(session, send=None)
+
+    by_merchant = {p.merchant: p for p in payloads}
+    assert "Amazon" not in by_merchant, "95,00 is nobody's record"
+    assert by_merchant["Fnac"].reason == "all_time_low"
+    assert by_merchant["Fnac"].previous_low_eur == pytest.approx(85.0)
+
+
+def test_the_judged_observation_is_excluded_by_identity_not_by_value(session):
+    """Another offer sitting at the same price is still real history.
+
+    Dropping every row equal to today's price would be the lazy fix and would
+    quietly turn a tie into a record.
+    """
+    lego_set = _set(session, rrp=None)
+    amazon = _offer(session, lego_set, price=70.0, external_id="amazon")
+    fnac = _offer(session, lego_set, price=70.0, external_id="fnac", merchant="Fnac")
+    _history(session, amazon, [90.0, 85.0, 80.0])
+    _history(session, fnac, [95.0, 92.0, 88.0])
+    _observed_now(session, amazon, 70.0)
+    _observed_now(session, fnac, 70.0)
+    session.commit()
+
+    _, payloads = _run(session, send=None)
+
+    # Each still sees the other's 70,00, and equalling a record is not beating
+    # it, so neither is an all-time low.
+    assert [p.reason for p in payloads] == []
+
+
+def test_a_set_without_a_rrp_can_still_reach_an_all_time_low(session):
+    """The severe case: with no RRP, criterion B is the only way to alert."""
+    lego_set = _set(session, rrp=None)
+    first = _offer(session, lego_set, price=99.0, external_id="first")
+    second = _offer(
+        session, lego_set, price=30.0, external_id="second", merchant="Fnac"
+    )
+    _history(session, first, [99.0, 99.0, 99.0])
+    _history(session, second, [95.0, 90.0, 85.0])
+    _observed_now(session, first, 99.0)
+    _observed_now(session, second, 30.0)
+    session.commit()
+
+    _, payloads = _run(session, send=None)
+
+    assert [(p.merchant, p.reason) for p in payloads] == [("Fnac", "all_time_low")]
 
 
 def test_a_threshold_alert_carries_no_previous_record(session):

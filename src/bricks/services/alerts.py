@@ -199,19 +199,36 @@ def _build_candidate(
 
 
 def _price_history(session: Session, offer: Offer) -> list[tuple[float, datetime]]:
-    """Every price seen for this *set*, all offers and merchants together.
+    """Every price seen for this *set*, all offers and merchants together,
+    minus the one observation being judged.
 
-    The newest observation is dropped: an all-time low is judged against
-    history, not against itself. Queried once per offer and reused for both
-    the decision and the "previous record" line of the message.
+    That exclusion is **this offer's** newest point, not the set's. A whole run
+    shares one timestamp, so with two live offers for the same set the newest
+    row overall belonged to whichever was written last: the other one kept its
+    own just-recorded price among its "previous" prices and could never be
+    strictly below it. A set with no RRP has no other way to alert, so the
+    all-time low was lost entirely.
+
+    Queried once per offer and reused for both the decision and the "previous
+    record" line of the message.
     """
-    rows = session.execute(
+    judged = session.scalar(
+        select(PricePoint.id)
+        .where(PricePoint.offer_id == offer.id)
+        .order_by(PricePoint.observed_at.desc(), PricePoint.id.desc())
+        .limit(1)
+    )
+    query = (
         select(PricePoint.price_eur, PricePoint.observed_at)
         .join(Offer, Offer.id == PricePoint.offer_id)
         .where(Offer.set_num == offer.set_num)
-        .order_by(PricePoint.observed_at.desc())
-    ).all()
-    return [(price, observed_at) for price, observed_at in rows[1:]]
+        # id breaks the ties a shared run timestamp creates, so the order is
+        # the same on every engine and every run.
+        .order_by(PricePoint.observed_at.desc(), PricePoint.id.desc())
+    )
+    if judged is not None:
+        query = query.where(PricePoint.id != judged)
+    return [(price, observed_at) for price, observed_at in session.execute(query).all()]
 
 
 def _build_payload(
