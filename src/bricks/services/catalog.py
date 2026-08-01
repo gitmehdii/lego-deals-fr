@@ -14,9 +14,10 @@ Knows nothing about Discord, imports nothing from `adapters/`.
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
-from sqlalchemy import insert, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from bricks.db.bulk import insert_many
 from bricks.db.models import Set
 from bricks.log import get_logger
 from bricks.sources.brickset import BricksetCatalogue
@@ -97,7 +98,7 @@ def _sync_identities(
             to_update.append(payload)
 
     if to_insert:
-        session.execute(insert(Set), to_insert)
+        insert_many(session, Set, to_insert)
     if to_update:
         # Only the identity columns are in the payload, so rrp_eur survives.
         session.execute(update(Set), to_update)
