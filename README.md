@@ -224,8 +224,19 @@ Deux workflows planifiés, qui appellent le CLI et rien d'autre :
 | `ingest.yml` | toutes les 15 min | `ingest --source dealabs` |
 | `catalogue.yml` | lundi | `catalog sync --since-year 2015` |
 
-Secrets GitHub à renseigner : `DATABASE_URL`, `DISCORD_WEBHOOK_URL`,
-`DEALABS_RSS_URL`, `BRICKSET_API_KEY`.
+Secrets GitHub :
+
+| Secret | | Sans lui |
+|---|---|---|
+| `DATABASE_URL` | **obligatoire** | rien ne persiste |
+| `DISCORD_WEBHOOK_URL` | recommandé | le run tourne, journalise un avertissement, n'alerte personne |
+| `BRICKSET_API_KEY` | recommandé | `catalog sync` importe l'identité et saute les prix |
+| `DEALABS_RSS_URL` | **facultatif** | le flux public du groupe LEGO, qui est le défaut |
+
+Un secret absent arrive dans le runner comme une chaîne **vide**, pas comme
+une variable absente. La configuration traite les deux pareil, donc ne pas
+renseigner un secret facultatif retombe bien sur son défaut au lieu de
+l'écraser.
 
 `DATABASE_URL` **doit** pointer sur Turso : le disque d'un runner est effacé
 entre deux exécutions, donc un SQLite sur fichier repartirait vide à chaque
