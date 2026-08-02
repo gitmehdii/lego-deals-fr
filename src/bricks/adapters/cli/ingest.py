@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 from bricks.adapters.cli.common import configure, load_settings
 from bricks.adapters.webhook.discord import (
     DiscordHealthWebhook,
-    DiscordWebhook,
+    DiscordRouter,
     render_console,
     render_health_console,
 )
 from bricks.config import Settings
+from bricks.core.channels import CHANNELS
 from bricks.db.models import Run
 from bricks.db.session import create_db_engine, create_session_factory
 from bricks.log import get_logger, redact_secrets
@@ -20,10 +21,6 @@ from bricks.services.health import HealthWarning, warn_about_dead_sources
 from bricks.services.ingest import IngestReport, ingest
 from bricks.sources.http import HttpFetcher
 from bricks.sources.registry import SOURCE_NAMES, build_source
-
-# Unused in v1, which has a single channel. The column exists so the anti-spam
-# rules and a future multi-server setup have something to key on.
-_CHANNEL_ID = "default"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -64,7 +61,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             alerts, previews = detect_and_alert(
                 session,
                 min_discount_pct=settings.min_discount_pct,
-                channel_id=_CHANNEL_ID,
                 send=_sender(fetcher, settings, dry_run=args.dry_run),
                 only_offer_ids=report.seen_offer_ids,
             )
@@ -93,18 +89,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _sender(fetcher: HttpFetcher, settings: Settings, *, dry_run: bool) -> object:
     """None means "compute everything, send nothing" — the dry run.
 
-    A missing webhook URL takes the same path as --dry-run rather than
+    No webhook configured at all takes the same path as --dry-run rather than
     failing: the offers and price points are already worth the run.
     """
     if dry_run:
         return None
-    if settings.discord_webhook_url is None:
+    if not any(settings.webhook_for(channel) for channel in CHANNELS):
         get_logger(__name__).warning("discord_webhook_url_missing")
         return None
-    webhook = DiscordWebhook(
-        fetcher, webhook_url=settings.discord_webhook_url.get_secret_value()
-    )
-    return webhook.send
+
+    def webhook_for(channel: str) -> str | None:
+        secret = settings.webhook_for(channel)
+        return secret.get_secret_value() if secret is not None else None
+
+    return DiscordRouter(fetcher, webhook_for=webhook_for).send
 
 
 def _warn_or_log(

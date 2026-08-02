@@ -236,11 +236,46 @@ Trois garde-fous, chacun testable :
 1. Pas deux alertes pour la même `offer` à moins de 24 h d'intervalle
 2. Pas de nouvelle alerte pour la même offre si le prix n'a pas baissé d'au
    moins 5 % depuis la dernière alerte
-3. Maximum 10 alertes par run, les meilleures remises d'abord. Si le plafond est
-   atteint, le run le journalise clairement, parce que c'est souvent le signe
-   d'un bug plutôt que d'un vendredi noir
+3. Maximum 10 alertes **par salon** et par run, les meilleures d'abord. Si un
+   plafond est atteint, le run le journalise clairement, parce que c'est
+   souvent le signe d'un bug plutôt que d'un vendredi noir
+
+> Le plafond était global jusqu'au 2 août 2026. Mesuré sur des données
+> réelles, il coupait à chaque run : 19 offres qualifiantes sur 30 actives, et
+> une avalanche de promos fidélité sur un seul thème suffisait à faire taire
+> tous les autres. Par salon, chacun a son quota et une catégorie ne peut plus
+> étouffer les autres.
+
+Un plus bas prix historique passe devant une alerte de seuil quel que soit son
+pourcentage. La plupart des sets n'ont pas de RRP, donc pas de remise
+calculable : classés sur la remise seule, leurs records se retrouvaient
+derrière tout le reste et étaient les premiers écartés par le plafond — soit
+l'inverse exact de ce que la section 5 appelle « le fait le plus rare ».
 
 ---
+
+## 5 bis. Où part l'alerte
+
+Le serveur porte plusieurs salons, et une alerte va dans celui qui correspond
+au thème du set. Cinq salons, volontairement larges :
+
+| Salon | Thèmes |
+|---|---|
+| `star_wars` | Star Wars |
+| `collection` | Icons, Botanicals, Architecture, Ideas, Brickheadz |
+| `vehicules` | Technic, Speed Champions, Racers, Train |
+| `univers` | Harry Potter, Marvel, DC, Minecraft, Mario, Ninjago, Disney… |
+| `divers` | tout le reste, **y compris tout thème inconnu** |
+
+Le catalogue compte 150 thèmes et les promos réelles n'en touchent qu'une
+vingtaine, dont la moitié une seule fois. Un salon par thème serait deux
+douzaines de pièces vides. Le fourre-tout garantit qu'un thème que LEGO
+inventera l'an prochain est discret, jamais perdu.
+
+Le routage est une décision métier, pas un détail d'affichage : `core/` choisit
+le nom du salon, `alerts.channel_id` l'enregistre, et `adapters/` se contente
+d'y associer une URL de webhook. Un webhook Discord étant lié à un seul salon,
+il en faut un par salon ; celui qui manque retombe sur le fourre-tout.
 
 ## 6. Format de l'alerte
 

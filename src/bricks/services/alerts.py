@@ -6,6 +6,7 @@ console block or anything else is `adapters/`' problem. That separation is
 what will let an MCP server or an API reuse this without a refactor.
 """
 
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from bricks.core.channels import CATCH_ALL, channel_for
 from bricks.core.detect import (
     MAX_ALERTS_PER_RUN,
     AlertReason,
@@ -34,6 +36,10 @@ class AlertPayload(BaseModel):
     set_num: str
     set_name: str
     url: str
+    # Where this deal is announced, decided by core.channels from the theme.
+    # Routing, not presentation: `alerts.channel_id` records the same value,
+    # and the adapter looks the webhook up from it.
+    channel: str = CATCH_ALL
     price_eur: float
     rrp_eur: float | None = None
     discount_pct: float | None = None
@@ -63,7 +69,6 @@ def detect_and_alert(
     session: Session,
     *,
     min_discount_pct: float,
-    channel_id: str,
     send: Callable[[AlertPayload], None] | None = None,
     only_offer_ids: list[int] | None = None,
     now: datetime | None = None,
@@ -103,20 +108,34 @@ def detect_and_alert(
     ranked = rank_for_sending([(c, d) for c, d, _, _ in qualifying])
     by_offer = {offer.id: (offer, lego_set) for _, _, offer, lego_set in qualifying}
 
-    if len(ranked) > MAX_ALERTS_PER_RUN:
-        report.capped = True
-        # Far more often a bug than a black Friday, so it is said loudly.
-        _log.warning(
-            "alert_cap_reached", qualifying=len(ranked), cap=MAX_ALERTS_PER_RUN
-        )
-
-    to_send = ranked[:MAX_ALERTS_PER_RUN]
-    payloads: list[AlertPayload] = []
-    for candidate, decision in to_send:
+    # The cap is per channel, so a flood of Botanicals cannot crowd Star Wars
+    # out of its own room. `ranked` is ordered best-first across everything, so
+    # taking the first ten of each channel keeps the best ten of each.
+    room = Counter()
+    to_send: list[AlertPayload] = []
+    for candidate, decision in ranked:
         offer, lego_set = by_offer[candidate.offer_id]
         payload = _build_payload(
             candidate, decision, offer, lego_set, history_by_offer[candidate.offer_id]
         )
+        if room[payload.channel] >= MAX_ALERTS_PER_RUN:
+            report.capped = True
+            continue
+        room[payload.channel] += 1
+        to_send.append(payload)
+
+    if report.capped:
+        # Far more often a bug than a black Friday, so it is said loudly.
+        _log.warning(
+            "alert_cap_reached",
+            qualifying=len(ranked),
+            selected=len(to_send),
+            cap=MAX_ALERTS_PER_RUN,
+            per_channel=dict(room),
+        )
+
+    payloads: list[AlertPayload] = []
+    for payload in to_send:
         payloads.append(payload)
 
         if send is None:
@@ -129,14 +148,15 @@ def detect_and_alert(
             # reported rather than raised.
             #
             # We stop instead of trying the rest: the likeliest reason to be
-            # here is a rate limit — the cap is 10 a run and Discord takes 5
-            # every 2 seconds — and pushing through is precisely what it asks
-            # us not to do. Nothing is lost, because an alert with no row is an
-            # alert the next run offers again.
+            # here is a rate limit — Discord takes 5 messages every 2 seconds —
+            # and pushing through is precisely what it asks us not to do.
+            # Nothing is lost, because an alert with no row is an alert the
+            # next run offers again.
             report.undelivered = len(to_send) - report.sent
             _log.error(
                 "alert_send_failed",
                 offer_id=payload.offer_id,
+                channel=payload.channel,
                 undelivered=report.undelivered,
                 error=redact_secrets(exc),
             )
@@ -145,9 +165,9 @@ def detect_and_alert(
         # actually delivered", and the anti-spam rules read it as such.
         session.add(
             Alert(
-                offer_id=offer.id,
+                offer_id=payload.offer_id,
                 guild_id=None,
-                channel_id=channel_id,
+                channel_id=payload.channel,
                 price_eur=payload.price_eur,
                 discount_pct=payload.discount_pct,
                 reason=payload.reason,
@@ -248,6 +268,7 @@ def _build_payload(
     return AlertPayload(
         previous_low_eur=previous_low[0] if previous_low else None,
         previous_low_at=previous_low[1] if previous_low else None,
+        channel=channel_for(lego_set.theme),
         offer_id=offer.id,
         set_num=lego_set.set_num,
         set_name=lego_set.name,

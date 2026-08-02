@@ -41,7 +41,22 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///local.db"
 
     brickset_api_key: SecretStr | None = None
+
+    # The catch-all channel, and the only one needed to run: a deal whose
+    # channel has no webhook of its own falls back here. Leaving every field
+    # below unset is the single-channel setup, unchanged.
     discord_webhook_url: SecretStr | None = None
+
+    # One field per channel in core.channels, one GitHub secret each. A JSON
+    # blob in a single variable would have been fewer fields and one secret to
+    # rotate for all five; separate ones let each be validated on its own and
+    # revoked without touching the others.
+    discord_webhook_star_wars: SecretStr | None = None
+    discord_webhook_collection: SecretStr | None = None
+    discord_webhook_vehicules: SecretStr | None = None
+    discord_webhook_univers: SecretStr | None = None
+    discord_webhook_divers: SecretStr | None = None
+
     # Dealabs' own LEGO group feed. A personal keyword-alert feed substitutes
     # for it without a code change; that URL is personal, treat it as a secret.
     dealabs_rss_url: str = "https://www.dealabs.com/rss/groupe/lego"
@@ -63,6 +78,16 @@ class Settings(BaseSettings):
     min_resolution_score: float = Field(default=0.85, ge=0.0, le=1.0)
 
     log_level: LogLevel = "INFO"
+
+    def webhook_for(self, channel: str) -> SecretStr | None:
+        """The webhook a channel posts through, or the catch-all's.
+
+        None means "nothing configured for this deal", which the caller treats
+        exactly like a missing DISCORD_WEBHOOK_URL: warn, and keep the offers.
+        """
+        return getattr(self, f"discord_webhook_{channel}", None) or (
+            self.discord_webhook_url
+        )
 
     @field_validator("*", mode="before")
     @classmethod
@@ -129,19 +154,22 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("discord_webhook_url", mode="after")
+    @field_validator("*", mode="after")
     @classmethod
-    def _must_be_a_webhook_url(cls, value: SecretStr | None) -> SecretStr | None:
+    def _must_be_a_webhook_url(cls, value: object, info: ValidationInfo) -> object:
         """Fail at startup rather than mid-run, and never echo the value.
 
-        Validated after coercion to SecretStr so that pydantic prints
+        Applies to every discord_webhook_* field by name rather than to a
+        listed few, so adding a channel means adding one field and nothing
+        else. Validated after coercion to SecretStr so that pydantic prints
         `**********` rather than the URL if it reports the error.
         """
-        if value is None:
-            return None
+        name = info.field_name or ""
+        if not name.startswith("discord_webhook") or not isinstance(value, SecretStr):
+            return value
         if not value.get_secret_value().startswith(_WEBHOOK_PREFIXES):
             raise ValueError(
-                "DISCORD_WEBHOOK_URL must be a webhook URL "
+                f"{name.upper()} must be a webhook URL "
                 "(https://discord.com/api/webhooks/...), obtained from the "
                 "channel's Integrations settings. A channel link copied from "
                 "the app (https://discord.com/channels/...) is a web page, "
