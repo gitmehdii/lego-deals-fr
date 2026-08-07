@@ -21,6 +21,20 @@ from bricks.log import get_logger
 # "the pipeline has died" looks like from the outside.
 CONSECUTIVE_BAD_RUNS_BEFORE_WARNING = 3
 
+# The two rules above count runs that happened. A run that never starts writes
+# no row at all, so the streaks stay at zero and nothing notices — the one
+# thing the monitoring cannot see is its own absence. Four scheduled runs in a
+# week were cancelled by GitHub before a single step executed, and the database
+# holds no trace of any of them.
+#
+# 18 hours, measured rather than guessed: over a week in production the longest
+# real gap between two successful runs was 9.5 hours, an overnight lull on a
+# */15 cron GitHub actually honours about once every two hours. Eighteen leaves
+# more than eight hours of margin, because SPEC.md is explicit that a warning
+# one learns to ignore is worse than silence. Tighten it once there is more
+# than a week of cadence behind the number.
+MAX_HOURS_WITHOUT_A_RUN = 18.0
+
 # The window the resolution rate is measured over. Recent enough to notice a
 # format change, wide enough not to swing on a single odd title.
 RESOLUTION_SAMPLE_SIZE = 100
@@ -42,20 +56,32 @@ class SourceHealth(BaseModel):
     last_status: str | None = None
     consecutive_empty: int = 0
     consecutive_failed: int = 0
+    # None when the source has never succeeded at all.
+    hours_since_last_ok: float | None = None
 
     @property
     def looks_dead(self) -> bool:
-        """Three runs finding nothing, or three failing, per SPEC.md."""
+        """Three runs finding nothing, three failing, or a long silence."""
         return self.death_reason is not None
 
     @property
     def death_reason(self) -> HealthAlertReason | None:
-        """Failing outranks silent: an exception says more than a zero count."""
+        """Failing outranks silent, and both outrank absent.
+
+        A recorded failure says more than a zero count, and a zero count says
+        more than "nothing at all happened" — which is the least specific of
+        the three and the only one inferred rather than observed.
+        """
         threshold = CONSECUTIVE_BAD_RUNS_BEFORE_WARNING
         if self.consecutive_failed >= threshold:
             return "failing"
         if self.consecutive_empty >= threshold:
             return "no_items"
+        if (
+            self.hours_since_last_ok is not None
+            and self.hours_since_last_ok >= MAX_HOURS_WITHOUT_A_RUN
+        ):
+            return "stale"
         return None
 
 
@@ -83,7 +109,7 @@ def collect_health(session: Session, *, now: datetime | None = None) -> HealthRe
     since = now - timedelta(days=ALERT_WINDOW_DAYS)
 
     return HealthReport(
-        sources=[_source_health(session, name) for name in _source_names(session)],
+        sources=[_source_health(session, name, now) for name in _source_names(session)],
         active_offers=_count(session, Offer, Offer.is_active.is_(True)),
         total_offers=total_offers,
         resolved_in_sample=_resolved_in_sample(session),
@@ -103,7 +129,7 @@ def _source_names(session: Session) -> list[str]:
     return list(session.scalars(select(Run.source).distinct().order_by(Run.source)))
 
 
-def _source_health(session: Session, source: str) -> SourceHealth:
+def _source_health(session: Session, source: str, now: datetime) -> SourceHealth:
     runs = list(
         session.scalars(
             select(Run)
@@ -125,6 +151,9 @@ def _source_health(session: Session, source: str) -> SourceHealth:
         last_ok_at=last_ok.started_at if last_ok else None,
         consecutive_empty=_streak(runs, lambda run: run.items_found == 0),
         consecutive_failed=_streak(runs, lambda run: run.status == "error"),
+        hours_since_last_ok=(
+            (now - last_ok.started_at).total_seconds() / 3600 if last_ok else None
+        ),
     )
 
 
@@ -161,8 +190,20 @@ class HealthWarning(BaseModel):
 
     source: str
     reason: HealthAlertReason
-    consecutive_runs: int
+    # How many runs in a row misbehaved. Zero when the reason is `stale`:
+    # there were no runs to count, which is the whole point.
+    consecutive_runs: int = 0
+    hours_since_last_ok: float | None = None
     last_ok_at: datetime | None = None
+
+
+# `stale` counts nothing: it is the reason that fires precisely because no run
+# was recorded to count.
+_STREAK_FOR_REASON: dict[HealthAlertReason, Callable[[SourceHealth], int]] = {
+    "failing": lambda source: source.consecutive_failed,
+    "no_items": lambda source: source.consecutive_empty,
+    "stale": lambda _: 0,
+}
 
 
 def warn_about_dead_sources(
@@ -192,11 +233,8 @@ def warn_about_dead_sources(
         warning = HealthWarning(
             source=source.source,
             reason=reason,
-            consecutive_runs=(
-                source.consecutive_failed
-                if reason == "failing"
-                else source.consecutive_empty
-            ),
+            consecutive_runs=_STREAK_FOR_REASON[reason](source),
+            hours_since_last_ok=source.hours_since_last_ok,
             last_ok_at=source.last_ok_at,
         )
         warnings.append(warning)

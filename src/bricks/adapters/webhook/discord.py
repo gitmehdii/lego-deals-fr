@@ -220,15 +220,24 @@ _ALARM_RED = 0xC0392B
 _WARNING_TEXT = {
     "no_items": "n'a rien trouvé depuis {runs} exécutions",
     "failing": "échoue depuis {runs} exécutions",
+    # No run count here on purpose: this warning exists because no run was
+    # recorded to count.
+    "stale": "n'a plus tourné depuis {hours} heures",
 }
+
+
+def _warning_body(warning: HealthWarning) -> str:
+    hours = warning.hours_since_last_ok
+    return _WARNING_TEXT[warning.reason].format(
+        runs=warning.consecutive_runs,
+        hours=round(hours) if hours is not None else "?",
+    )
 
 
 def build_health_embed(warning: HealthWarning) -> dict:
     """Visually distinct from a deal: no thumbnail, no price, alarm colour."""
     lines = [
-        f"La source **{warning.source}** "
-        + _WARNING_TEXT[warning.reason].format(runs=warning.consecutive_runs)
-        + ".",
+        f"La source **{warning.source}** {_warning_body(warning)}.",
         "",
         "Dernier succès : "
         + (format_date(warning.last_ok_at) if warning.last_ok_at else "jamais"),
@@ -241,9 +250,8 @@ def build_health_embed(warning: HealthWarning) -> dict:
 
 
 def render_health_console(warning: HealthWarning) -> str:
-    body = _WARNING_TEXT[warning.reason].format(runs=warning.consecutive_runs)
     last_ok = format_date(warning.last_ok_at) if warning.last_ok_at else "jamais"
-    return f"⚠️  {warning.source} {body}. Dernier succès : {last_ok}."
+    return f"⚠️  {warning.source} {_warning_body(warning)}. Dernier succès : {last_ok}."
 
 
 class DiscordHealthWebhook(DiscordWebhook):
