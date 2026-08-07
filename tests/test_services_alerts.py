@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,7 +9,9 @@ from bricks.services.alerts import detect_and_alert
 from bricks.sources.http import SourceUnavailableError
 
 NOW = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
-CHANNEL = "test-channel"
+# The theme every _set() helper uses is Icons, which core.channels routes
+# to the "collection" room.
+CHANNEL = "collection"
 
 
 def _set(session, set_num="10497-1", rrp=99.99, **kwargs):
@@ -84,7 +87,6 @@ def _run(session, *, send=None, min_discount_pct=25.0, only=None):
     return detect_and_alert(
         session,
         min_discount_pct=min_discount_pct,
-        channel_id=CHANNEL,
         send=send,
         only_offer_ids=only,
         now=NOW,
@@ -389,3 +391,46 @@ def test_the_payload_carries_what_the_message_needs(session):
     assert payload.year == 2022
     assert payload.image_url == "https://img.test/10497.jpg"
     assert payload.url == "https://dealabs.test/1"
+
+
+def test_the_cap_is_per_channel_so_one_theme_cannot_crowd_out_another(session):
+    """The reason the rooms exist: a flood of Botanicals used to eat the whole
+    run's quota and leave Star Wars unannounced."""
+    from bricks.core.detect import MAX_ALERTS_PER_RUN
+
+    botanicals = _set(session, set_num="11000-1", rrp=100.0)
+    botanicals.theme = "Botanicals"
+    star_wars = _set(session, set_num="75000-1", rrp=100.0)
+    star_wars.theme = "Star Wars"
+    session.flush()
+
+    # Twelve deep Botanicals discounts, all better than the single Star Wars.
+    for index in range(MAX_ALERTS_PER_RUN + 2):
+        _offer(session, botanicals, price=10.0 + index, external_id=f"bota-{index}")
+    _offer(session, star_wars, price=70.0, external_id="sw")
+    session.commit()
+
+    report, payloads = _run(session, send=Recorder())
+
+    rooms = Counter(p.channel for p in payloads)
+    assert rooms["botanicals"] == 0, "no such room; Botanicals lives in collection"
+    assert rooms["collection"] == MAX_ALERTS_PER_RUN, "its own quota, not the run's"
+    assert rooms["star_wars"] == 1, "announced despite a weaker discount"
+    assert report.capped, "collection overflowed, and that is said out loud"
+
+
+def test_the_channel_recorded_is_the_channel_announced(session):
+    """alerts.channel_id and the webhook come from the same value on the
+    payload, so what was announced and where cannot drift apart."""
+    lego_set = _set(session, set_num="75001-1")
+    lego_set.theme = "Star Wars"
+    _offer(session, lego_set, price=69.99, external_id="sw")
+    session.commit()
+
+    recorder = Recorder()
+    _run(session, send=recorder)
+
+    (payload,) = recorder.sent
+    alert = session.scalars(select(Alert)).one()
+    assert payload.channel == "star_wars"
+    assert alert.channel_id == payload.channel

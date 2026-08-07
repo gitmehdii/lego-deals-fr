@@ -272,3 +272,52 @@ def _connect_url(parsed: URL) -> str | None:
     except ValueError:
         return None
     return args[0]
+
+
+def test_every_channel_has_a_webhook_field():
+    """Pin core.channels to Settings mechanically.
+
+    A channel added to the mapping without its field here would not fail —
+    it would quietly fall back to the catch-all, and its room would stay
+    empty with nothing to explain why.
+    """
+    from bricks.core.channels import CHANNELS
+
+    missing = [
+        channel
+        for channel in CHANNELS
+        if f"discord_webhook_{channel}" not in Settings.model_fields
+    ]
+    assert not missing, f"no DISCORD_WEBHOOK_* field for: {missing}"
+
+
+def test_a_channel_falls_back_to_the_catch_all(monkeypatch):
+    """One webhook configured is the whole single-channel setup, unchanged."""
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1/all")
+    monkeypatch.delenv("DISCORD_WEBHOOK_STAR_WARS", raising=False)
+    get_settings.cache_clear()
+    config = Settings()
+
+    assert config.webhook_for("star_wars").get_secret_value().endswith("/all")
+
+
+def test_a_channel_with_its_own_webhook_does_not_use_the_catch_all(monkeypatch):
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1/all")
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_STAR_WARS", "https://discord.com/api/webhooks/2/sw"
+    )
+    get_settings.cache_clear()
+    config = Settings()
+
+    assert config.webhook_for("star_wars").get_secret_value().endswith("/sw")
+    assert config.webhook_for("collection").get_secret_value().endswith("/all")
+
+
+def test_a_per_channel_webhook_is_validated_like_the_others(monkeypatch):
+    """The rule applies by field name, so a new channel gets it for free."""
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_UNIVERS", "https://discord.com/channels/123/456"
+    )
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError, match="DISCORD_WEBHOOK_UNIVERS"):
+        Settings()

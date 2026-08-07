@@ -7,6 +7,7 @@ other string — logs, exceptions, CLI — stays English.
 `services/` knows nothing about any of this and must keep it that way.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -163,7 +164,12 @@ class DiscordWebhook:
 
     def send(self, payload: AlertPayload) -> None:
         self._post({"embeds": [build_embed(payload)]})
-        _log.info("alert_sent", offer_id=payload.offer_id, reason=payload.reason)
+        _log.info(
+            "alert_sent",
+            offer_id=payload.offer_id,
+            reason=payload.reason,
+            channel=payload.channel,
+        )
 
     def _post(self, body: dict) -> None:
         try:
@@ -173,6 +179,37 @@ class DiscordWebhook:
             raise SourceUnavailableError(
                 f"discord webhook refused the message: {redact_secrets(exc)}"
             ) from None
+
+
+class DiscordRouter:
+    """One webhook per channel, chosen from the payload.
+
+    A Discord webhook is bound to a single channel, so several channels means
+    several URLs. The routing decision itself is not made here: `core.channels`
+    already put the answer on the payload, and `alerts.channel_id` records the
+    same value, so what was announced and where cannot drift apart.
+    """
+
+    def __init__(
+        self, fetcher: HttpFetcher, *, webhook_for: Callable[[str], str | None]
+    ) -> None:
+        self._fetcher = fetcher
+        self._webhook_for = webhook_for
+        self._senders: dict[str, DiscordWebhook] = {}
+
+    def send(self, payload: AlertPayload) -> None:
+        url = self._webhook_for(payload.channel)
+        if url is None:
+            # No webhook for this channel and no catch-all either. The offer
+            # and its price point are already saved; skipping the message is
+            # better than failing the run over a channel nobody configured.
+            _log.warning("no_webhook_for_channel", channel=payload.channel)
+            return
+        if payload.channel not in self._senders:
+            self._senders[payload.channel] = DiscordWebhook(
+                self._fetcher, webhook_url=url
+            )
+        self._senders[payload.channel].send(payload)
 
 
 # Deliberately not one of the deal colours. SPEC.md section 6 gives green,

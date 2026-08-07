@@ -103,8 +103,36 @@ indépendants — il suffit qu'un seul soit vrai :
 
 Trois garde-fous : pas deux alertes pour la même offre à moins de 24 h, pas de
 nouvelle alerte si le prix n'a pas baissé d'au moins 5 % depuis la dernière, et
-10 alertes maximum par run. Atteindre le plafond est journalisé bruyamment,
-parce que c'est plus souvent un bug qu'un vendredi noir.
+**10 alertes maximum par salon** et par run. Atteindre un plafond est
+journalisé bruyamment, parce que c'est plus souvent un bug qu'un vendredi noir.
+
+### Salons par thème
+
+Une alerte part dans le salon qui correspond au thème du set :
+
+| Salon | Thèmes | Variable |
+|---|---|---|
+| `star_wars` | Star Wars | `DISCORD_WEBHOOK_STAR_WARS` |
+| `collection` | Icons, Botanicals, Architecture, Ideas | `DISCORD_WEBHOOK_COLLECTION` |
+| `vehicules` | Technic, Speed Champions, Racers, Train | `DISCORD_WEBHOOK_VEHICULES` |
+| `univers` | Harry Potter, Marvel, DC, Minecraft, Mario… | `DISCORD_WEBHOOK_UNIVERS` |
+| `divers` | tout le reste, et tout thème inconnu | `DISCORD_WEBHOOK_DIVERS` |
+
+Cinq salons volontairement larges : le catalogue compte 150 thèmes, les promos
+réelles n'en touchent qu'une vingtaine, et la moitié n'apparaît qu'une fois.
+Sur les 39 premières alertes réelles, la répartition donne univers 14, divers
+8, collection 7, star wars 5, véhicules 5 — aucun salon écrasant.
+
+Un webhook Discord est lié à **un** salon, donc il en faut un par salon.
+Chacun est facultatif : sans webhook propre, un salon retombe sur
+`DISCORD_WEBHOOK_URL`. **Ne renseigner que celle-ci reproduit exactement le
+comportement mono-salon**, ce qui rend la bascule progressive.
+
+Le routage vit dans `core/channels.py`, une fonction pure : c'est une décision
+métier, `alerts.channel_id` l'enregistre, et `adapters/` se contente d'y
+associer une URL. Un test épingle la liste des salons aux champs de
+configuration, pour qu'un salon ajouté sans sa variable échoue au lieu de
+retomber silencieusement dans le fourre-tout.
 
 Si Discord refuse un message, le run **ne tombe pas** : les offres et les
 price points sont déjà acquis. L'envoi s'arrête là — le plafond est à 10 et
