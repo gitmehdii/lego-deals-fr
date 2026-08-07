@@ -184,7 +184,11 @@ CREATE TABLE health_alerts (
     -- Which source went quiet, e.g. 'dealabs'.
     source      TEXT NOT NULL,
 
-    -- 'no_items' | 'failing'
+    -- 'no_items' | 'failing' | 'stale'
+    --
+    -- 'stale' is the one nobody observed: a run cancelled before it started
+    -- writes no row to `runs`, so no streak can count it. It is inferred from
+    -- how long ago the last success was.
     reason      TEXT NOT NULL,
 
     sent_at     TEXT NOT NULL

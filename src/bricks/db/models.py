@@ -17,7 +17,9 @@ from bricks.db.base import Base
 # SQLAlchemy turns a Literal into an Enum and emits VARCHAR(n).
 ResolutionMethod = Literal["set_number", "fuzzy_name", "manual"]
 AlertReason = Literal["discount_threshold", "all_time_low"]
-HealthAlertReason = Literal["no_items", "failing"]
+# `stale` is the one nobody observed: no run was recorded, so it is inferred
+# from how long ago the last success was rather than from any row.
+HealthAlertReason = Literal["no_items", "failing", "stale"]
 RunStatus = Literal["running", "ok", "error"]
 
 

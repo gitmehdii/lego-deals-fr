@@ -317,10 +317,34 @@ Un run qui plante enregistre quand même sa ligne, avec le message d'erreur.
 `run_id` en contexte. Un log doit répondre à « qu'est-ce qui s'est passé et pour
 quel run », pas raconter une histoire.
 
-**Alerte de santé.** Si les 3 derniers runs d'une source ont trouvé zéro entrée,
-ou si les 3 derniers ont échoué, un message d'avertissement part dans Discord.
-Ce message est distinct visuellement des alertes de deals et n'est pas répété
+**Alerte de santé.** Trois raisons, dans cet ordre de priorité :
+
+| Raison | Déclencheur |
+|---|---|
+| `failing` | les 3 derniers runs ont échoué |
+| `no_items` | les 3 derniers runs ont trouvé zéro entrée |
+| `stale` | aucun run réussi depuis 18 heures |
+
+Le message est distinct visuellement des alertes de deals et n'est pas répété
 plus d'une fois par 24 h.
+
+Les deux premières comptent des runs **qui ont eu lieu**. La troisième existe
+parce qu'un run qui ne démarre jamais n'écrit aucune ligne dans `runs` : les
+compteurs restent à zéro et rien ne le remarque. Observé en production —
+4 exécutions planifiées sur une semaine ont été annulées par GitHub avant la
+moindre étape, et la base n'en garde aucune trace. **La seule chose que la
+surveillance ne voit pas, c'est sa propre absence.**
+
+Le seuil de 18 h est mesuré, pas deviné : sur une semaine, le plus long écart
+réel entre deux runs réussis a été de 9,5 heures, un creux de nuit. Le reste
+est de la marge, parce qu'un avertissement qu'on apprend à ignorer est pire
+que le silence.
+
+> **Limite assumée.** Cette règle est évaluée pendant un run et par
+> `bricks.health`. Si plus aucun run ne démarre du tout, rien ne l'évalue —
+> `health` le dira à qui le lance, mais aucun message ne partira tout seul.
+> Fermer complètement ce trou demanderait un veilleur externe et indépendant,
+> hors périmètre v1.
 
 **Commande de diagnostic.** `python -m bricks.health` affiche en une page :
 date du dernier run réussi par source, nombre d'offres actives, taux de

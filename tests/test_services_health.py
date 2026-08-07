@@ -4,7 +4,12 @@ import pytest
 from sqlalchemy import func, select
 
 from bricks.db.models import Alert, HealthAlert, Offer, Run, Set
-from bricks.services.health import collect_health, warn_about_dead_sources
+from bricks.services.health import (
+    CONSECUTIVE_BAD_RUNS_BEFORE_WARNING,
+    MAX_HOURS_WITHOUT_A_RUN,
+    collect_health,
+    warn_about_dead_sources,
+)
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
 
@@ -306,3 +311,72 @@ def test_the_warning_carries_the_streak_and_the_last_success(session):
     (warning,) = _warn(session, WarningRecorder())
     assert warning.consecutive_runs == 3
     assert warning.last_ok_at is not None
+
+
+# --- staleness: the failure nobody records ---------------------------------
+
+
+def _ok_run(session, source="dealabs", at=None, items=5):
+    session.add(
+        Run(
+            source=source,
+            started_at=at or NOW,
+            finished_at=at or NOW,
+            status="ok",
+            items_found=items,
+        )
+    )
+    session.flush()
+
+
+def test_a_source_that_simply_stopped_running_looks_dead(session):
+    """The hole this closes: a run cancelled before it starts writes no row,
+    so no streak can count it and every other rule stays silent."""
+    _ok_run(session, at=NOW - timedelta(hours=MAX_HOURS_WITHOUT_A_RUN + 1))
+    session.commit()
+
+    (source,) = collect_health(session, now=NOW).sources
+
+    assert source.consecutive_failed == 0, "nothing failed; nothing ran at all"
+    assert source.consecutive_empty == 0
+    assert source.looks_dead
+    assert source.death_reason == "stale"
+
+
+def test_a_normal_overnight_lull_is_not_death(session):
+    """Measured in production: the longest real gap was 9.5 hours, and a
+    warning that fires on a quiet night is one you learn to ignore."""
+    _ok_run(session, at=NOW - timedelta(hours=9.5))
+    session.commit()
+
+    (source,) = collect_health(session, now=NOW).sources
+    assert not source.looks_dead
+
+
+def test_a_recorded_failure_outranks_mere_silence(session):
+    """`failing` says more than `stale`: one was observed, the other inferred."""
+    for index in range(CONSECUTIVE_BAD_RUNS_BEFORE_WARNING):
+        session.add(
+            Run(
+                source="dealabs",
+                started_at=NOW - timedelta(hours=20 + index),
+                status="error",
+                items_found=0,
+            )
+        )
+    session.commit()
+
+    (source,) = collect_health(session, now=NOW).sources
+    assert source.death_reason == "failing"
+
+
+def test_the_stale_warning_says_hours_not_runs(session):
+    """It counts no runs on purpose — there were none to count."""
+    _ok_run(session, at=NOW - timedelta(hours=30))
+    session.commit()
+
+    (warning,) = warn_about_dead_sources(session, send=None, now=NOW)
+
+    assert warning.reason == "stale"
+    assert warning.consecutive_runs == 0
+    assert warning.hours_since_last_ok == pytest.approx(30.0, abs=0.1)

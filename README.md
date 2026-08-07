@@ -211,11 +211,24 @@ Dernier run par source, offres actives, taux de résolution sur les 100
 dernières offres, alertes sur 7 jours. **Sort en code 1** quand une source a
 l'air morte, pour qu'un cron le remarque sans que personne lise la page.
 
-Une source est déclarée morte après 3 runs vides ou 3 échecs consécutifs. Un
-avertissement part alors dans Discord, en rouge et sans vignette ni prix —
-impossible à confondre avec un deal — puis plus rien pendant 24 h, quelle que
-soit la durée de la panne. Répéter toutes les 15 minutes apprendrait à
-l'ignorer, ce qui est pire que le silence.
+Une source est déclarée morte après 3 runs vides, 3 échecs consécutifs, ou
+**18 heures sans le moindre run réussi**. Un avertissement part alors dans
+Discord, en rouge et sans vignette ni prix — impossible à confondre avec un
+deal — puis plus rien pendant 24 h, quelle que soit la durée de la panne.
+Répéter toutes les 15 minutes apprendrait à l'ignorer, ce qui est pire que le
+silence.
+
+La troisième règle existe parce que les deux premières comptent des runs qui
+ont eu lieu. Un run annulé avant de démarrer n'écrit rien dans `runs` : les
+compteurs restent à zéro et rien ne le remarque. C'est arrivé 4 fois en une
+semaine de production, sans laisser la moindre trace en base. Le seuil de 18 h
+est mesuré : le plus long écart réel entre deux runs réussis a été de
+9,5 heures.
+
+Cette règle ne ferme le trou qu'à moitié, et c'est assumé : elle est évaluée
+pendant un run et par `health`. Si plus rien ne démarre du tout, `health` le
+dira à qui le lance, mais aucun message ne partira seul. Il faudrait un
+veilleur extérieur pour ça.
 
 ## Architecture
 
