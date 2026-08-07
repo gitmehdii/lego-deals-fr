@@ -6,10 +6,18 @@ name: ingest
 
 on:
   schedule:
-    # Every 15 minutes. GitHub queues rather than guarantees this, and stops
-    # scheduled workflows altogether in a repository nobody has touched for 60
-    # days — which is why the pipeline warns about its own silence in Discord
-    # rather than trusting this line.
+    # Asks for every 15 minutes and gets one run every 104, measured over six
+    # days and 85 triggers: GitHub queues scheduled workflows rather than
+    # guaranteeing them, and honours about 14% of the slots — worse at night
+    # (131 min between runs) than by day (93).
+    #
+    # Left at */15 deliberately. Asking more often yields more runs than asking
+    # less, so lowering this to */30 would not make the file more truthful, it
+    # would halve what we get. The README carries the measured numbers.
+    #
+    # GitHub also disables scheduled workflows entirely in a repository nobody
+    # has touched for 60 days — which is why the pipeline warns about its own
+    # silence in Discord rather than trusting this line.
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
