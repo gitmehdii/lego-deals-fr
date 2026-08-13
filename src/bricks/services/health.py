@@ -44,8 +44,8 @@ ALERT_WINDOW_DAYS = 7
 _log = get_logger(__name__)
 
 # SPEC.md section 7: the warning must not be repeated more than once a day.
-# A source stays broken for hours; repeating every fifteen minutes would train
-# the reader to ignore it, which is the one outcome worse than silence.
+# A source stays broken for hours; repeating it on every run would train the
+# reader to ignore it, which is the one outcome worse than silence.
 MIN_HOURS_BETWEEN_WARNINGS = 24
 
 

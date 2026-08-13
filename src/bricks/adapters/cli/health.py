@@ -6,6 +6,7 @@ from sqlalchemy.engine import make_url
 
 from bricks.adapters.cli.common import configure, load_settings
 from bricks.config import Settings
+from bricks.core.channels import CHANNELS
 from bricks.db.session import create_db_engine, create_session_factory
 from bricks.services.health import (
     ALERT_WINDOW_DAYS,
@@ -44,6 +45,26 @@ def _row(label: str, value: object) -> str:
     return f"{label:<{_LABEL_WIDTH}}{value}"
 
 
+def _channels(settings: Settings) -> str:
+    """Which rooms post through their own webhook, and which borrow the
+    catch-all. Names only, never a URL: each one is a credential.
+
+    Here because a channel silently falling back is indistinguishable from a
+    channel correctly configured, right up until you notice every deal landed
+    in the same room.
+    """
+    own = [
+        channel
+        for channel in CHANNELS
+        if getattr(settings, f"discord_webhook_{channel}", None) is not None
+    ]
+    if not own:
+        return f"none — all {len(CHANNELS)} use the catch-all"
+    borrowed = [channel for channel in CHANNELS if channel not in own]
+    suffix = f"  (catch-all: {', '.join(borrowed)})" if borrowed else ""
+    return f"{len(own)}/{len(CHANNELS)}  {', '.join(own)}{suffix}"
+
+
 def _render(settings: Settings, report: HealthReport) -> str:
     """Never print DATABASE_URL: a libSQL URL carries an auth token."""
     lines = [
@@ -53,6 +74,7 @@ def _render(settings: Settings, report: HealthReport) -> str:
         _row("Database driver", make_url(settings.database_url).drivername),
         _row("BRICKSET_API_KEY set", settings.brickset_api_key is not None),
         _row("DISCORD_WEBHOOK_URL set", settings.discord_webhook_url is not None),
+        _row("Channels with own webhook", _channels(settings)),
         "",
         "Runs",
     ]

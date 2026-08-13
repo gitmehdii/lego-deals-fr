@@ -215,8 +215,7 @@ Une source est déclarée morte après 3 runs vides, 3 échecs consécutifs, ou
 **18 heures sans le moindre run réussi**. Un avertissement part alors dans
 Discord, en rouge et sans vignette ni prix — impossible à confondre avec un
 deal — puis plus rien pendant 24 h, quelle que soit la durée de la panne.
-Répéter toutes les 15 minutes apprendrait à l'ignorer, ce qui est pire que le
-silence.
+Répéter à chaque run apprendrait à l'ignorer, ce qui est pire que le silence.
 
 La troisième règle existe parce que les deux premières comptent des runs qui
 ont eu lieu. Un run annulé avant de démarrer n'écrit rien dans `runs` : les
@@ -262,8 +261,33 @@ Deux workflows planifiés, qui appellent le CLI et rien d'autre :
 
 | Workflow | Cadence | Commande |
 |---|---|---|
-| `ingest.yml` | toutes les 15 min | `ingest --source dealabs` |
+| `ingest.yml` | `*/15`, en pratique ~1 h 45 | `ingest --source dealabs` |
 | `catalogue.yml` | lundi | `catalog sync --since-year 2015` |
+
+### La cadence réelle n'est pas celle du cron
+
+Mesuré sur 6 jours de production, 85 déclenchements planifiés :
+
+| | |
+|---|---|
+| Cadence demandée | 1 run / 15 min |
+| **Cadence obtenue** | **1 run / 104 min** |
+| Créneaux `*/15` honorés | **14 %** |
+| Écart médian · 90ᵉ centile · max | 92 min · 181 min · 6,1 h |
+| Jour (8h–24h Paris) vs nuit | 93 min vs 131 min |
+
+GitHub **met en file** les workflows planifiés, il ne les garantit pas, et
+déprogramme d'autant plus volontiers que le dépôt est sur le palier gratuit.
+La nuit est nettement pire que la journée.
+
+Le cron reste à `*/15` **exprès** : demander plus souvent donne plus de runs
+qu'en demander moins. Le baisser à `*/30` ne rapprocherait pas la
+configuration de la réalité, ça diviserait simplement le nombre de runs
+obtenus. C'est la documentation qui devait s'aligner, pas le cron.
+
+Ce que ça change concrètement : un deal court peut passer entre deux runs, et
+la règle de péremption de `health` est calée sur cette cadence — 18 h, quand
+le plus long écart entre deux runs **réussis** a été de 9,5 h.
 
 Secrets GitHub :
 
