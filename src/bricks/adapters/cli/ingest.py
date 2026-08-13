@@ -98,6 +98,21 @@ def _sender(fetcher: HttpFetcher, settings: Settings, *, dry_run: bool) -> objec
         get_logger(__name__).warning("discord_webhook_url_missing")
         return None
 
+    # Said once a run, because falling back is silent by design and that is
+    # exactly how five channels went five days posting to the wrong room: the
+    # secrets existed, the workflow never passed them, and nothing anywhere
+    # was any the wiser. Names only — a webhook URL is a credential.
+    own = [
+        channel
+        for channel in CHANNELS
+        if getattr(settings, f"discord_webhook_{channel}", None) is not None
+    ]
+    get_logger(__name__).info(
+        "discord_channels_configured",
+        own=own,
+        falling_back=[channel for channel in CHANNELS if channel not in own],
+    )
+
     def webhook_for(channel: str) -> str | None:
         secret = settings.webhook_for(channel)
         return secret.get_secret_value() if secret is not None else None

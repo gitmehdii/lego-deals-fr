@@ -33,10 +33,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # A GitHub secret is not an environment variable until it is named here.
+    # A channel missing from this list is not an error anywhere: config falls
+    # back to DISCORD_WEBHOOK_URL by design, so its deals land in the catch-all
+    # while alerts.channel_id keeps recording the room they were meant for.
+    # tests/test_workflows.py compares this block to the Settings fields.
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       DEALABS_RSS_URL: ${{ secrets.DEALABS_RSS_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      DISCORD_WEBHOOK_STAR_WARS: ${{ secrets.DISCORD_WEBHOOK_STAR_WARS }}
+      DISCORD_WEBHOOK_COLLECTION: ${{ secrets.DISCORD_WEBHOOK_COLLECTION }}
+      DISCORD_WEBHOOK_VEHICULES: ${{ secrets.DISCORD_WEBHOOK_VEHICULES }}
+      DISCORD_WEBHOOK_UNIVERS: ${{ secrets.DISCORD_WEBHOOK_UNIVERS }}
+      DISCORD_WEBHOOK_DIVERS: ${{ secrets.DISCORD_WEBHOOK_DIVERS }}
 
     steps:
       - uses: actions/checkout@v4
