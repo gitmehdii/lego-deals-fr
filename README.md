@@ -1,233 +1,203 @@
-# bricks
+# lego-deals-fr
 
-Détecte les promos sur les sets LEGO en France et les publie dans Discord, avec
-le prix de référence officiel et l'historique de prix.
+Finds LEGO discounts in France and posts them to Discord, with the official recommended
+price and the price history behind them.
 
-La valeur du projet tient en deux points : associer un deal brut à un set LEGO
-identifié, et savoir si le prix du jour est réellement bon comparé à tout ce
-qu'on a déjà observé.
+[![ci](https://github.com/gitmehdii/lego-deals-fr/actions/workflows/ci.yml/badge.svg)](https://github.com/gitmehdii/lego-deals-fr/actions/workflows/ci.yml)
 
-- `CLAUDE.md` — décisions techniques et règles du projet
-- `SPEC.md` — ce que le système fait
-- `TICKETS.md` — les six lots, dans l'ordre
-- `schema.sql` — le schéma de référence de la base
+The value is in two things: matching a raw deal to an identified LEGO set, and knowing
+whether today's price is actually good compared to everything observed so far. The Python
+package is called `bricks`.
 
-## Prérequis
+## Quick start
 
-[`uv`](https://docs.astral.sh/uv/) et Python 3.12.
-
-## Installation
+Requirements: [`uv`](https://docs.astral.sh/uv/) and Python 3.12.
 
 ```bash
 uv sync
-cp .env.example .env   # puis remplir
+cp .env.example .env          # then fill it in
+uv run alembic upgrade head   # creates the six tables in DATABASE_URL
 ```
 
-## Base de données
+Three commands, one per job:
 
 ```bash
-uv run alembic upgrade head
+uv run python -m bricks.ingest --source dealabs   # fetch deals, resolve, alert
+uv run python -m bricks.catalog sync              # fill the set catalogue
+uv run python -m bricks.health                    # is anything still alive
 ```
 
-Crée les six tables dans la base pointée par `DATABASE_URL`.
+## Ingestion
 
-## Commandes
+Reads the RSS feed Dealabs publishes for its LEGO group, deduplicates on
+`(source, external_id)`, and appends a `price_point` on **every observation**, including
+when the price has not moved. "We looked and it was still 79.99" is information in itself.
 
-```bash
-uv run python -m bricks.ingest --source dealabs
-uv run python -m bricks.catalog sync
-uv run python -m bricks.health
-```
+Price and merchant come from the feed's `pepper:merchant` attribute. The title is only read
+as a fallback.
 
-### Ingestion
+Every execution writes a row to `runs`, including when it fails: status `error`, a message
+cleaned by `redact_secrets`, and exit code 1.
 
-```bash
-uv run python -m bricks.ingest --source dealabs
-```
+`DEALABS_RSS_URL` defaults to the public group feed. A personal alert feed can be
+substituted without touching the code, but that URL is personal, so treat it as a secret.
 
-Lit le flux RSS que Dealabs publie sur son groupe LEGO, déduplique sur
-`(source, external_id)` et empile un `price_point` **à chaque observation**,
-même quand le prix n'a pas bougé — « on a regardé et c'était toujours 79,99 »
-est une information en soi.
+## Resolution
 
-Le prix et le marchand viennent de l'attribut `pepper:merchant` du flux ; le
-titre n'est lu qu'en secours.
+Each ingested offer is matched to a `set_num` by two strategies:
 
-Chaque exécution écrit une ligne dans `runs`, y compris quand elle échoue :
-statut `error`, message nettoyé par `redact_secrets`, et code de sortie 1.
+1. **Set number.** A 4 to 7 digit number is read from the title and cross-checked against
+   the catalogue. Score 1.0. This is what does the work: 97% of real observed titles carry
+   their number.
+2. **Fuzzy match.** `rapidfuzz` with `token_sort_ratio` on `name_normalized`, used only when
+   no number was found.
 
-`DEALABS_RSS_URL` pointe par défaut sur le flux public du groupe. Un flux
-d'alerte personnel s'y substitue sans toucher au code — mais cette URL-là est
-personnelle, traite-la comme un secret.
+Below `MIN_RESOLUTION_SCORE` (0.85), `set_num` stays NULL and the offer will never trigger
+an alert. The score and the method are stored either way, including when the verdict is a
+rejection.
 
-### Résolution
+The traps are handled and each one has a test: a year (`LEGO Star Wars 2024`) is not a set
+number, neither is a piece count, neither is a price, and two real sets in one title yield
+NULL rather than a guess.
 
-Chaque offre ingérée est associée à un `set_num`, en deux stratégies :
+`tests/fixtures/titles.yaml` is the safety net: 52 real Dealabs titles with their expected
+`set_num`, plus 6 hand-built traps counted separately. It should grow every time a
+resolution misses.
 
-1. **Numéro de set** — on lit un nombre de 4 à 7 chiffres dans le titre et on
-   le croise avec le catalogue. Score 1.0. C'est elle qui fait le travail :
-   **97 % des titres réels observés portent leur numéro**.
-2. **Correspondance floue** — `rapidfuzz` en `token_sort_ratio` sur
-   `name_normalized`, seulement si aucun numéro n'a été trouvé.
+Labels are proposed automatically and cross-checked against the catalogue, requiring the
+official English name to match the French title. None has been reviewed by a human yet, and
+the file says so in its header.
 
-En dessous de `MIN_RESOLUTION_SCORE` (0.85), `set_num` reste NULL et l'offre ne
-déclenchera jamais d'alerte. Le score et la méthode sont stockés dans tous les
-cas, y compris quand le verdict est rejeté.
-
-Les pièges traités, chacun couvert par un test : une année (`LEGO Star Wars
-2024`) n'est pas un numéro, un décompte de pièces non plus, un prix non plus,
-et deux vrais sets dans un même titre donnent NULL plutôt qu'un pari.
-
-`tests/fixtures/titles.yaml` est le filet de sécurité : 52 vrais titres
-Dealabs avec le `set_num` attendu, plus 6 pièges construits à la main et
-comptés à part. **À enrichir chaque fois qu'une résolution rate.**
-
-Les étiquettes sont proposées automatiquement puis croisées avec le catalogue
-— le nom officiel anglais doit correspondre au titre français — mais **aucune
-n'a encore été relue par un humain**, et le fichier le dit en en-tête.
-
-### Détection et alertes
+## Detection and alerts
 
 ```bash
 uv run python -m bricks.ingest --source dealabs --dry-run
 ```
 
-Une offre résolue, active et avec un prix est évaluée sur deux critères
-indépendants — il suffit qu'un seul soit vrai :
+An offer that is resolved, active and priced is evaluated on two independent criteria. One
+is enough to fire:
 
-- **A, seuil de remise** : `discount_pct >= MIN_DISCOUNT_PCT`, calculé sur le
-  RRP et **jamais** sur le prix barré du marchand, qui est du marketing.
-- **B, plus bas prix historique** : strictement sous tout ce qui a été observé
-  pour ce set, tous marchands confondus, et seulement à partir de 3
-  observations antérieures.
+- **A, discount threshold.** `discount_pct >= MIN_DISCOUNT_PCT`, computed on the
+  recommended retail price and never on the merchant's struck-through price, which is
+  marketing. The RRP is the only honest reference for a discount.
+- **B, historical low.** Strictly below everything ever observed for that set, across all
+  merchants, and only once there are at least 3 prior observations.
 
-Trois garde-fous : pas deux alertes pour la même offre à moins de 24 h, pas de
-nouvelle alerte si le prix n'a pas baissé d'au moins 5 % depuis la dernière, et
-**10 alertes maximum par salon** et par run. Atteindre un plafond est
-journalisé bruyamment, parce que c'est plus souvent un bug qu'un vendredi noir.
+Three guard rails: no two alerts for the same offer within 24 hours, no new alert unless the
+price dropped at least 5% since the last one, and at most 10 alerts per channel per run.
+Hitting a cap is logged loudly, because it is more often a bug than a black friday.
 
-### Salons par thème
+`--dry-run` prints the embeds to the console without touching Discord or the `alerts` table.
+Without `DISCORD_WEBHOOK_URL` the run takes the same path with a warning, since the offers
+and the price points are worth collecting on their own.
 
-Une alerte part dans le salon qui correspond au thème du set :
+Only offers seen during the run are evaluated. Alerting on a price nobody confirmed today
+would send the reader to a dead page.
 
-| Salon | Thèmes | Variable |
+### Channels by theme
+
+An alert goes to the channel matching the set's theme:
+
+| Channel | Themes | Variable |
 |---|---|---|
 | `star_wars` | Star Wars | `DISCORD_WEBHOOK_STAR_WARS` |
 | `collection` | Icons, Botanicals, Architecture, Ideas | `DISCORD_WEBHOOK_COLLECTION` |
 | `vehicules` | Technic, Speed Champions, Racers, Train | `DISCORD_WEBHOOK_VEHICULES` |
-| `univers` | Harry Potter, Marvel, DC, Minecraft, Mario… | `DISCORD_WEBHOOK_UNIVERS` |
-| `divers` | tout le reste, et tout thème inconnu | `DISCORD_WEBHOOK_DIVERS` |
+| `univers` | Harry Potter, Marvel, DC, Minecraft, Mario | `DISCORD_WEBHOOK_UNIVERS` |
+| `divers` | everything else, and any unknown theme | `DISCORD_WEBHOOK_DIVERS` |
 
-Cinq salons volontairement larges : le catalogue compte 150 thèmes, les promos
-réelles n'en touchent qu'une vingtaine, et la moitié n'apparaît qu'une fois.
-Sur les 39 premières alertes réelles, la répartition donne univers 14, divers
-8, collection 7, star wars 5, véhicules 5 — aucun salon écrasant.
+Five deliberately broad channels: the catalogue has 150 themes, real discounts only touch
+about twenty of them, and half of those appear exactly once. Across the first 39 real
+alerts the split was univers 14, divers 8, collection 7, star wars 5, vehicules 5, with no
+channel dominating.
 
-Un webhook Discord est lié à **un** salon, donc il en faut un par salon.
-Chacun est facultatif : sans webhook propre, un salon retombe sur
-`DISCORD_WEBHOOK_URL`. **Ne renseigner que celle-ci reproduit exactement le
-comportement mono-salon**, ce qui rend la bascule progressive.
+A Discord webhook is bound to one channel, so each channel needs its own. Each is optional:
+without its own webhook a channel falls back to `DISCORD_WEBHOOK_URL`. Setting only that one
+reproduces the single-channel behaviour exactly, which makes the migration gradual.
 
-Le routage vit dans `core/channels.py`, une fonction pure : c'est une décision
-métier, `alerts.channel_id` l'enregistre, et `adapters/` se contente d'y
-associer une URL. Un test épingle la liste des salons aux champs de
-configuration, pour qu'un salon ajouté sans sa variable échoue au lieu de
-retomber silencieusement dans le fourre-tout.
+Routing lives in `core/channels.py` as a pure function, because it is a business decision.
+`alerts.channel_id` records it and `adapters/` only maps it to a URL. A test pins the
+channel list to the configuration fields, so a channel added without its variable fails
+instead of silently landing in the catch-all.
 
-Si Discord refuse un message, le run **ne tombe pas** : les offres et les
-price points sont déjà acquis. L'envoi s'arrête là — le plafond est à 10 et
-Discord accepte 5 messages par 2 secondes, donc un refus est très
-probablement une limite de débit, et insister est exactement ce qu'elle
-demande de ne pas faire. Rien n'est perdu : une alerte sans ligne dans
-`alerts` est une alerte que le run suivant repropose.
+If Discord refuses a message the run does not fall over: the offers and price points are
+already collected. Sending stops there. The cap is 10 and Discord accepts 5 messages per
+2 seconds, so a refusal is most likely a rate limit, and insisting is exactly what a rate
+limit asks you not to do. Nothing is lost, because an alert with no row in `alerts` is an
+alert the next run proposes again.
 
-#### Point ouvert : les prix nets de cagnotte
+### Open question: prices net of loyalty credit
 
-Sur un run réel, **9 alertes sur 10 sont des offres E.Leclerc « via X€ de
-fidélité »**, et le plafond de 10 est atteint. Ce n'est pas un bug de
-détection : c'est la sémantique du prix dans le flux.
+On a real run, 9 alerts out of 10 are E.Leclerc offers phrased as "via X euros de
+fidelite", and the cap of 10 is reached. This is not a detection bug, it is the semantics of
+the price in the feed.
 
-E.Leclerc fait des opérations « 25 % cagnottés », et le prix publié par
-Dealabs est **net de la cagnotte**, pas ce qu'on paie en caisse. En
-rajoutant le crédit lu dans le titre, on retombe sur des prix de rayon
-francs :
+E.Leclerc runs "25% cagnottes" promotions, and the price Dealabs publishes is net of that
+credit, not what you pay at the till. Adding the credit back gives ordinary shelf prices:
 
-| Prix du flux | + cagnotte | = caisse | RRP | remise annoncée | remise réelle |
+| Feed price | Credit | At the till | RRP | Advertised | Actual |
 |---|---|---|---|---|---|
-| 9,86 € | 3,29 € | 13,15 € | 19,99 € | -51 % | **-34 %** |
-| 5,99 € | 2,00 € | 7,99 € | 9,99 € | -40 % | **-20 %** |
-| 32,92 € | 10,98 € | 43,90 € | 59,99 € | -45 % | **-27 %** |
+| 9.86 | 3.29 | 13.15 | 19.99 | -51% | **-34%** |
+| 5.99 | 2.00 | 7.99 | 9.99 | -40% | **-20%** |
+| 32.92 | 10.98 | 43.90 | 59.99 | -45% | **-27%** |
 
-L'écart est d'environ 19 points. La cagnotte est réelle, mais elle ne se
-dépense que chez le même marchand plus tard, donc ce n'est pas le prix payé.
-CLAUDE.md exige une remise honnête et interdit le prix barré du marchand,
-« qui est du marketing » — un prix net de cagnotte pose exactement la même
-question, et elle n'est pas tranchée. **Décision produit, à prendre par
-Mehdi**, entre garder le prix du flux, retenir le prix caisse, ou afficher
-les deux.
+The gap is about 19 points. The credit is real, but it can only be spent at the same
+merchant later, so it is not the price paid. The project rules out the merchant's
+struck-through price because it is marketing, and a price net of loyalty credit raises the
+same question. It is not settled: the options are to keep the feed price, use the till
+price, or show both.
 
-`--dry-run` affiche les embeds en console sans toucher ni à Discord ni à la
-table `alerts`. Sans `DISCORD_WEBHOOK_URL`, le run prend le même chemin avec un
-avertissement : les offres et les price points valent déjà le coup.
-
-Seules les offres **vues pendant le run** sont évaluées. Alerter sur un prix
-que personne n'a confirmé aujourd'hui enverrait le lecteur sur une page morte.
-
-### Catalogue
+## Catalogue
 
 ```bash
 uv run python -m bricks.catalog sync [--since-year 2016] [--skip-rrp]
 ```
 
-Remplit la table `sets` en deux temps :
+Fills the `sets` table in two stages:
 
-1. **Identité** — les dumps CSV de Rebrickable donnent numéro, nom, thème,
-   année, nombre de pièces et image. `name_normalized` est calculé à l'import.
-2. **Prix conseillé** — l'API Brickset donne le RRP en euros, année par année.
-   Sans `BRICKSET_API_KEY`, cette phase est sautée avec un avertissement et
-   l'import de l'identité reste valable.
+1. **Identity.** Rebrickable CSV dumps give number, name, theme, year, piece count and
+   image. `name_normalized` is computed at import.
+2. **Recommended price.** The Brickset API gives the RRP in euros, year by year. Without
+   `BRICKSET_API_KEY` this stage is skipped with a warning and the identity import stays
+   valid.
 
-La commande est idempotente : `updated_at` ne bouge que si quelque chose a
-réellement changé, donc un second sync ne touche pas une ligne. `--since-year`
-limite la phase des prix aux sets récents, `--skip-rrp` la désactive.
+The command is idempotent: `updated_at` only moves when something actually changed, so a
+second sync touches no rows. `--since-year` limits the price stage to recent sets,
+`--skip-rrp` disables it.
 
-Le RRP couvre 94 % des sets de 500 pièces et plus, et se raréfie en dessous.
-Ce n'est pas un trou : ce qui manque, ce sont les BrickLink Designer Program,
-le matériel éducatif Dacta et les sachets promotionnels, que LEGO n'a jamais
-vendus sur LEGO.com — il n'existe donc aucun prix conseillé à récupérer. Ces
-sets ne déclencheront jamais d'alerte par seuil de remise, seulement par plus
-bas prix historique.
+The two stages commit separately, so if the Brickset API goes down mid-run the identity
+import is already durable and the next sync resumes.
 
-Les deux phases sont commitées séparément : si l'API Brickset tombe en cours de
-route, l'import de l'identité est déjà durable et le sync suivant reprend.
+RRP covers 94% of sets of 500 pieces and up, and thins out below that. This is not a gap in
+the data: what is missing are BrickLink Designer Program sets, Dacta educational material
+and promotional polybags, which LEGO never sold on LEGO.com, so no recommended price exists
+to fetch. Those sets can only ever alert on a historical low, never on a discount threshold.
 
-### Santé
+## Health
 
 ```bash
 uv run python -m bricks.health
 ```
 
-Dernier run par source, offres actives, taux de résolution sur les 100
-dernières offres, alertes sur 7 jours. **Sort en code 1** quand une source a
-l'air morte, pour qu'un cron le remarque sans que personne lise la page.
+Reports the last run per source, active offers, the resolution rate over the last 100
+offers, and alerts over 7 days. It **exits 1** when a source looks dead, so a cron notices
+without anyone reading the output.
 
-Une source est déclarée morte après 3 runs vides, 3 échecs consécutifs, ou
-**18 heures sans le moindre run réussi**. Un avertissement part alors dans
-Discord, en rouge et sans vignette ni prix — impossible à confondre avec un
-deal — puis plus rien pendant 24 h, quelle que soit la durée de la panne.
-Répéter à chaque run apprendrait à l'ignorer, ce qui est pire que le silence.
+A source is declared dead after 3 empty runs, 3 consecutive failures, or 18 hours without a
+single successful run. A warning then goes to Discord, in red and with no thumbnail or
+price so it cannot be mistaken for a deal, and then nothing for 24 hours regardless of how
+long the outage lasts. Repeating it every run would teach the reader to ignore it, which is
+worse than silence.
 
-La troisième règle existe parce que les deux premières comptent des runs qui
-ont eu lieu. Un run annulé avant de démarrer n'écrit rien dans `runs` : les
-compteurs restent à zéro et rien ne le remarque. C'est arrivé 4 fois en une
-semaine de production, sans laisser la moindre trace en base. Le seuil de 18 h
-est mesuré : le plus long écart réel entre deux runs réussis a été de
-9,5 heures.
+The third rule exists because the first two only count runs that happened. A run cancelled
+before it starts writes nothing to `runs`, so the counters stay at zero and nothing notices.
+That happened 4 times in one week of production without leaving a trace in the database. The
+18 hour threshold is measured: the longest real gap between two successful runs was 9.5
+hours.
 
-Cette règle ne ferme le trou qu'à moitié, et c'est assumé : elle est évaluée
-pendant un run et par `health`. Si plus rien ne démarre du tout, `health` le
-dira à qui le lance, mais aucun message ne partira seul. Il faudrait un
-veilleur extérieur pour ça.
+That rule only half closes the hole, and that is deliberate. It is evaluated during a run
+and by `health`. If nothing starts at all, `health` will say so to whoever runs it, but no
+message goes out on its own. Closing it fully needs an external watchdog.
 
 ## Architecture
 
@@ -236,99 +206,94 @@ veilleur extérieur pour ça.
                  Brickset ─────┤
                  Dealabs ──────┤
                                ▼
-                         sources/          récupère, ne persiste rien
+                         sources/          fetches, persists nothing
                                │
                                ▼
-                         services/         orchestre + persiste
-                          │        │        (n'a jamais entendu parler de Discord)
+                         services/         orchestrates and persists
+                          │        │        (has never heard of Discord)
                           ▼        ▼
-                       core/      db/      logique pure   SQLAlchemy
+                       core/      db/      pure logic     SQLAlchemy
                           │
                           ▼
                        adapters/
-                       ├── cli/            ingest · catalog · health
-                       └── webhook/        embeds Discord, français
+                       ├── cli/            ingest, catalog, health
+                       └── webhook/        Discord embeds, in French
 ```
 
-La règle qui tient l'ensemble : **`services/` n'importe jamais rien de
-`adapters/`**. C'est ce qui permettra d'ajouter un serveur MCP ou une API sans
-rien refactorer, et c'est aussi pourquoi le français ne vit que dans
-`adapters/webhook/`.
+The rule that holds it together: `services/` never imports anything from `adapters/`. That
+is what will allow an MCP server or an HTTP API to be added without refactoring, and it is
+also why French only exists inside `adapters/webhook/`.
 
-## Déploiement
+## Deployment
 
-Deux workflows planifiés, qui appellent le CLI et rien d'autre :
+Two scheduled workflows, which call the CLI and nothing else:
 
-| Workflow | Cadence | Commande |
+| Workflow | Schedule | Command |
 |---|---|---|
-| `ingest.yml` | `*/15`, en pratique ~1 h 45 | `ingest --source dealabs` |
-| `catalogue.yml` | lundi | `catalog sync --since-year 2015` |
+| `ingest.yml` | `*/15`, about every 1h45 in practice | `ingest --source dealabs` |
+| `catalogue.yml` | Mondays | `catalog sync --since-year 2015` |
 
-### La cadence réelle n'est pas celle du cron
+### The real cadence is not the cron
 
-Mesuré sur 6 jours de production, 85 déclenchements planifiés :
+Measured over 6 days of production and 85 scheduled triggers:
 
 | | |
 |---|---|
-| Cadence demandée | 1 run / 15 min |
-| **Cadence obtenue** | **1 run / 104 min** |
-| Créneaux `*/15` honorés | **14 %** |
-| Écart médian · 90ᵉ centile · max | 92 min · 181 min · 6,1 h |
-| Jour (8h–24h Paris) vs nuit | 93 min vs 131 min |
+| Requested cadence | 1 run per 15 min |
+| **Actual cadence** | **1 run per 104 min** |
+| `*/15` slots honoured | **14%** |
+| Median, 90th percentile, max gap | 92 min, 181 min, 6.1 h |
+| Day (8am to midnight Paris) vs night | 93 min vs 131 min |
 
-GitHub **met en file** les workflows planifiés, il ne les garantit pas, et
-déprogramme d'autant plus volontiers que le dépôt est sur le palier gratuit.
-La nuit est nettement pire que la journée.
+GitHub queues scheduled workflows, it does not guarantee them, and it drops them more
+readily on the free tier. Nights are noticeably worse than days.
 
-Le cron reste à `*/15` **exprès** : demander plus souvent donne plus de runs
-qu'en demander moins. Le baisser à `*/30` ne rapprocherait pas la
-configuration de la réalité, ça diviserait simplement le nombre de runs
-obtenus. C'est la documentation qui devait s'aligner, pas le cron.
+The cron stays at `*/15` on purpose: asking more often yields more runs than asking less
+often. Lowering it to `*/30` would not bring the configuration closer to reality, it would
+just halve the runs obtained. The documentation was what needed to align, not the cron.
 
-Ce que ça change concrètement : un deal court peut passer entre deux runs, et
-la règle de péremption de `health` est calée sur cette cadence — 18 h, quand
-le plus long écart entre deux runs **réussis** a été de 9,5 h.
+What this changes in practice: a short-lived deal can slip between two runs, and the
+staleness rule in `health` is calibrated on this cadence, at 18 hours, when the longest gap
+between two successful runs was 9.5 hours.
 
-Secrets GitHub :
+### Secrets
 
-| Secret | | Sans lui |
+| Secret | | Without it |
 |---|---|---|
-| `DATABASE_URL` | **obligatoire** | rien ne persiste |
-| `DISCORD_WEBHOOK_URL` | recommandé | le run tourne, journalise un avertissement, n'alerte personne |
-| `BRICKSET_API_KEY` | recommandé | `catalog sync` importe l'identité et saute les prix |
-| `DEALABS_RSS_URL` | **facultatif** | le flux public du groupe LEGO, qui est le défaut |
+| `DATABASE_URL` | **required** | nothing persists |
+| `DISCORD_WEBHOOK_URL` | recommended | the run works, logs a warning, alerts nobody |
+| `BRICKSET_API_KEY` | recommended | `catalog sync` imports identity and skips prices |
+| `DEALABS_RSS_URL` | optional | defaults to the public LEGO group feed |
 
-Un secret absent arrive dans le runner comme une chaîne **vide**, pas comme
-une variable absente. La configuration traite les deux pareil, donc ne pas
-renseigner un secret facultatif retombe bien sur son défaut au lieu de
-l'écraser.
+A missing secret arrives in the runner as an **empty string**, not as an absent variable.
+The configuration treats both the same way, so leaving an optional secret unset falls back
+to its default instead of overwriting it.
 
-`DATABASE_URL` **doit** pointer sur Turso : le disque d'un runner est effacé
-entre deux exécutions, donc un SQLite sur fichier repartirait vide à chaque
-fois et `price_points` — la seule table que personne ne pourrait reconstruire
-— n'accumulerait jamais rien.
+### Database URL
+
+`DATABASE_URL` must point at Turso. A runner's disk is wiped between executions, so a
+file-backed SQLite would start empty every time and `price_points`, the one table nobody
+could rebuild, would never accumulate anything.
 
 ```
-sqlite+libsql://<base>.turso.io/?authToken=<token>&secure=true
+sqlite+libsql://<database>.turso.io/?authToken=<token>&secure=true
 ```
 
-Cette URL s'écrit sous cette forme exacte, pour deux raisons qui ne se voient
-pas :
+This URL is written in exactly that form for two reasons that are not visible:
 
-- **`sqlite+`** — `turso db show --url` donne `libsql://…`. Aucun dialecte
-  SQLAlchemy ne répond à ce nom : collée telle quelle, l'URL échoue en
-  `NoSuchModuleError`, loin de l'endroit où on l'a saisie.
-- **`secure=true`** — le pilote `sqlalchemy-libsql` choisit `http` ou `https`
-  d'après ce drapeau, **et le met à `false` par défaut**. Sans lui, la
-  connexion part en clair avec le token dans la query string, et rien ne le
-  signale.
+- **`sqlite+`**: `turso db show --url` gives `libsql://...`. No SQLAlchemy dialect answers
+  to that name, so pasted as is the URL fails with `NoSuchModuleError`, far from where it
+  was typed.
+- **`secure=true`**: the `sqlalchemy-libsql` driver picks `http` or `https` from this flag,
+  and defaults it to `false`. Without it the connection goes out in clear text with the
+  token in the query string, and nothing warns you.
 
-Les deux formes sont refusées au démarrage, avec la forme attendue dans le
-message. `tests/test_config.py` épingle la règle au pilote lui-même plutôt
-qu'à ce paragraphe : chaque URL acceptée est passée au vrai dialecte, et le
-test échoue si l'une d'elles construit un `http://`.
+Both wrong forms are rejected at startup, with the expected form in the error message.
+`tests/test_config.py` pins the rule to the driver itself rather than to this paragraph:
+every accepted URL is handed to the real dialect, and the test fails if any of them builds
+an `http://`.
 
-Mise en place :
+Setting it up:
 
 ```bash
 turso db create bricks
@@ -336,32 +301,29 @@ turso db show bricks --url          # libsql://bricks-<org>.turso.io
 turso db tokens create bricks
 ```
 
-Recomposer l'URL à la main, puis la vérifier depuis la machine avant de la
-coller dans un secret GitHub — un runner est un mauvais endroit pour découvrir
-qu'une URL est fausse :
+Recompose the URL by hand, then check it from your machine before pasting it into a GitHub
+secret, because a runner is a bad place to discover a URL is wrong:
 
 ```bash
-export DATABASE_URL='sqlite+libsql://…/?authToken=…&secure=true'
+export DATABASE_URL='sqlite+libsql://.../?authToken=...&secure=true'
 uv run alembic upgrade head
-uv run python -m bricks.health      # « Database driver  sqlite+libsql »
+uv run python -m bricks.health      # prints "Database driver  sqlite+libsql"
 ```
 
-`health` sur une base vide lit les six tables et sort en 0 : c'est le test de
-fumée du branchement, il n'en existe pas de plus court.
+`health` on an empty database reads the six tables and exits 0. That is the smallest
+possible smoke test of the connection.
 
-Ensuite renseigner les quatre secrets, et lancer `catalogue.yml` à la main une
-première fois : `ingest.yml` applique bien les migrations, mais sans catalogue
-aucune offre ne se résout.
+Then set the four secrets and run `catalogue.yml` once by hand: `ingest.yml` does apply the
+migrations, but without a catalogue no offer resolves.
 
-Ce qui reste non vérifié à ce jour : tout ce qui précède a été exercé de bout
-en bout **à travers le dialecte libSQL sur un fichier local** — migrations,
-lectures, écritures, et l'insertion en masse des 27 843 sets. Le trajet
-distant, lui, n'a jamais été essayé faute d'identifiants.
+What is not verified yet: everything above has been exercised end to end through the libSQL
+dialect against a local file, including migrations, reads, writes and the bulk insert of
+27,843 sets. The remote path has never been tried, for lack of credentials.
 
-Aucune ligne de `src/` ne sait qu'elle tourne dans GitHub Actions. Passer sur
-un VPS, c'est changer le déclencheur.
+No line of `src/` knows it runs inside GitHub Actions. Moving to a VPS means changing the
+trigger.
 
-## Développement
+## Development
 
 ```bash
 uv run ruff check .
@@ -369,26 +331,6 @@ uv run ruff format .
 uv run pytest
 ```
 
-`tests/test_schema_fidelity.py` compare le DDL produit par les modèles
-SQLAlchemy et par la migration Alembic à `schema.sql`. Toute divergence entre
-les trois fait échouer la suite.
-
-## État d'avancement
-
-| Lot | Sujet | État |
-|---|---|---|
-| 1 | Socle | fait |
-| 2 | Catalogue | fait |
-| 3 | Ingestion Dealabs | fait |
-| 4 | Résolution | fait (52 titres réels, 52/52, zéro faux positif) |
-| 5 | Détection et alertes | fait (rendu visuel des embeds jamais regardé) |
-| 6 | Observabilité et déploiement | code fait et vérifié ; reste le branchement Turso, qui demande des identifiants |
-
-Le lot 6 est terminé côté code. Ce qui a été vérifié à la main : `health` sur
-les données réelles, et l'avertissement de santé qui part **exactement à la
-3ᵉ exécution**, aussi bien quand le flux est injoignable que quand il répond
-un RSS valide et vide.
-
-Ce qui ne peut pas l'être sans identifiants Turso ni secrets GitHub : la
-connexion distante elle-même, et les 48 h de fonctionnement autonome que
-TICKETS.md demande.
+`tests/test_schema_fidelity.py` compares the DDL produced by the SQLAlchemy models and by
+the Alembic migration against `schema.sql`. Any divergence between the three fails the
+suite.
